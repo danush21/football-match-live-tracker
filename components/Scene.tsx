@@ -2,6 +2,7 @@
 
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
+import { Suspense } from "react";
 import { DevHandle } from "./DevHandle";
 import { Pitch } from "./Pitch";
 import { Replay } from "./Replay";
@@ -36,7 +37,9 @@ export function Scene({ match }: { match: MatchData }): React.JSX.Element {
 
       <DevHandle />
       <Pitch pitch={pitch} />
-      <Replay match={match} />
+      <Suspense fallback={null}>
+        <Replay match={match} />
+      </Suspense>
 
       <OrbitControls
         makeDefault
