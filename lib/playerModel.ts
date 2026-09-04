@@ -1,6 +1,7 @@
 import {
   AdditiveAnimationBlendMode,
   AnimationClip,
+  AnimationMixer,
   AnimationUtils,
   Box3,
   InterpolateSmooth,
@@ -11,6 +12,7 @@ import {
   Vector3,
   Euler,
 } from "three";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 /**
  * Model-facing configuration and clip preparation.
@@ -28,14 +30,25 @@ export const GAIT_JOG_MAX = 4;
 export const CROSSFADE_SECONDS = 0.2;
 
 /**
- * Roughly how fast each locomotion clip looks "natural" at timeScale 1.
- * Clip playback is scaled by speed / reference so the feet do not skate.
- * These depend on the model and are the first thing to retune after a swap.
+ * Fallback ground speeds for the locomotion clips, metres per second.
+ *
+ * Only used when measureClipGroundSpeed cannot read the real figure off the
+ * clip. Guessing these is what caused visible foot skating: the stand-in's
+ * clips actually depict 1.65 and 2.76 m/s, not the 2.2 and 5.4 assumed here
+ * before, so the run cycle was playing at roughly half the rate the ground
+ * speed demanded.
  */
-export const JOG_REFERENCE_SPEED = 2.2;
-export const RUN_REFERENCE_SPEED = 5.4;
-export const TIME_SCALE_MIN = 0.55;
-export const TIME_SCALE_MAX = 1.9;
+export const DEFAULT_JOG_SPEED = 2.2;
+export const DEFAULT_RUN_SPEED = 5.4;
+
+/**
+ * Playback rate limits. Deliberately wide: locking the feet to the ground
+ * matters more than keeping leg turnover pretty, and the bands each clip has
+ * to cover are wide (0.5 to 4 m/s for a jog). A slow walk really should play
+ * in slow motion, because the player really is moving that slowly.
+ */
+export const TIME_SCALE_MIN = 0.25;
+export const TIME_SCALE_MAX = 3;
 
 /**
  * Where in the kick clip the foot meets the ball, as a fraction of its length.
@@ -89,27 +102,136 @@ export function resolveClip(
 }
 
 /**
- * Strip horizontal root motion so the clip animates on the spot.
+ * Remove root travel so the clip animates on the spot, keeping everything else.
  *
- * Positions come from the tracking data, so any translation baked into the
- * clip would fight it and make the player drift. The vertical component is
- * kept: that is the gait's bob, not travel.
+ * Positions come from the tracking data, so travel baked into a clip would
+ * fight it. But only the *drift* is removed, never the per-stride sway and
+ * bounce -- an earlier version zeroed two fixed axes and flattened the hips'
+ * vertical bob, which made every stride glide.
+ *
+ * The vertical axis is detected rather than assumed: this rig is authored
+ * Z-up, so its hip height lives in the Z channel, not Y. Whichever channel
+ * carries the large constant offset (hip height above the floor) is up, and
+ * the other two are horizontal. A clip already exported in place has no net
+ * drift and is left completely untouched.
  */
 export function makeInPlace(clip: AnimationClip): AnimationClip {
   const out = clip.clone();
   for (const track of out.tracks) {
     if (!track.name.endsWith(".position")) continue;
     if (!/hips|root|armature/i.test(track.name)) continue;
+
     const values = track.values as Float32Array;
-    if (values.length < 3) continue;
-    const x = values[0]!;
-    const z = values[2]!;
-    for (let i = 0; i < values.length; i += 3) {
-      values[i] = x;
-      values[i + 2] = z;
+    const times = track.times as Float32Array;
+    const count = Math.floor(values.length / 3);
+    if (count < 2 || times.length < 2) continue;
+
+    // Vertical axis = the one with the largest mean magnitude (hip height).
+    let up = 0;
+    let upMean = -1;
+    for (let axis = 0; axis < 3; axis += 1) {
+      let sum = 0;
+      for (let i = 0; i < count; i += 1) sum += Math.abs(values[i * 3 + axis]!);
+      const mean = sum / count;
+      if (mean > upMean) {
+        upMean = mean;
+        up = axis;
+      }
+    }
+
+    const span = times[times.length - 1]! - times[0]!;
+    if (span <= 0) continue;
+
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (axis === up) continue;
+      const first = values[axis]!;
+      const net = values[(count - 1) * 3 + axis]! - first;
+      // Already in place on this axis: leave its sway alone.
+      if (Math.abs(net) < 1e-3 * Math.max(1, upMean)) continue;
+      // Subtract only the linear drift, keyed on time so uneven spacing is fine.
+      for (let i = 0; i < count; i += 1) {
+        const progress = (times[i]! - times[0]!) / span;
+        values[i * 3 + axis] = values[i * 3 + axis]! - net * progress;
+      }
     }
   }
   return out;
+}
+
+/**
+ * Measure the ground speed a locomotion clip actually depicts, in metres per
+ * second, so playback can be scaled to match the tracked speed.
+ *
+ * These clips carry no root motion, so there is no travel to read off. Instead
+ * this uses the fact that in an in-place clip the planted foot slides backwards
+ * at exactly the speed the character is meant to be moving. Sample the cycle,
+ * take the foot that is currently lowest as the planted one, and take the
+ * median of its horizontal speed over the stance phase -- median rather than
+ * mean so heel strike and toe off do not skew it.
+ *
+ * Returns null if the rig has no recognisable feet or the reading is
+ * implausible, in which case the caller keeps its default.
+ */
+export function measureClipGroundSpeed(
+  scene: Object3D,
+  clip: AnimationClip,
+  scale: number,
+): number | null {
+  const model = cloneSkeleton(scene);
+  model.scale.setScalar(scale);
+
+  const feet = [findBone(model, "leftfoot"), findBone(model, "rightfoot")];
+  if (feet[0] === null || feet[1] === null) return null;
+
+  const mixer = new AnimationMixer(model);
+  const action = mixer.clipAction(clip);
+  action.setEffectiveWeight(1);
+  action.play();
+
+  const SAMPLES = 96;
+  const dt = clip.duration / SAMPLES;
+  if (!(dt > 0)) return null;
+
+  const x: number[][] = [[], []];
+  const y: number[][] = [[], []];
+  const z: number[][] = [[], []];
+
+  for (let i = 0; i <= SAMPLES; i += 1) {
+    mixer.update(i === 0 ? 0 : dt);
+    model.updateMatrixWorld(true);
+    for (let f = 0; f < 2; f += 1) {
+      const e = feet[f]!.matrixWorld.elements;
+      x[f]!.push(e[12]!);
+      y[f]!.push(e[13]!);
+      z[f]!.push(e[14]!);
+    }
+  }
+
+  const stanceSpeeds: number[] = [];
+  for (let f = 0; f < 2; f += 1) {
+    const heights = y[f]!;
+    const low = Math.min(...heights);
+    const high = Math.max(...heights);
+    // The bottom third of the foot's travel counts as planted.
+    const threshold = low + (high - low) * 0.33;
+    for (let i = 1; i < heights.length; i += 1) {
+      if (heights[i]! > threshold) continue;
+      const dx = x[f]![i]! - x[f]![i - 1]!;
+      const dz = z[f]![i]! - z[f]![i - 1]!;
+      stanceSpeeds.push(Math.hypot(dx, dz) / dt);
+    }
+  }
+
+  mixer.stopAllAction();
+  mixer.uncacheRoot(model);
+
+  if (stanceSpeeds.length < 4) return null;
+  stanceSpeeds.sort((a, b) => a - b);
+  const median = stanceSpeeds[Math.floor(stanceSpeeds.length / 2)]!;
+
+  // A human locomotion clip lives between a shuffle and a sprint.
+  if (!Number.isFinite(median) || median < 0.2 || median > 12) return null;
+  return median;
 }
 
 /**
@@ -326,10 +448,21 @@ export function gaitForSpeed(speed: number): GaitName {
   return "run";
 }
 
-/** Playback rate for a gait so stride length tracks ground speed. */
-export function timeScaleForGait(gait: GaitName, speed: number): number {
+/**
+ * Playback rate for a gait so stride length tracks ground speed.
+ *
+ * `referenceSpeed` is the ground speed the clip itself depicts, measured by
+ * measureClipGroundSpeed. Playing it at speed / reference makes one stride
+ * cover exactly the distance the player travels, which is what stops the feet
+ * sliding.
+ */
+export function timeScaleForGait(
+  gait: GaitName,
+  speed: number,
+  referenceSpeed: number,
+): number {
   if (gait === "idle") return 1;
-  const reference = gait === "jog" ? JOG_REFERENCE_SPEED : RUN_REFERENCE_SPEED;
-  const raw = speed / reference;
+  if (!(referenceSpeed > 0)) return 1;
+  const raw = speed / referenceSpeed;
   return Math.min(TIME_SCALE_MAX, Math.max(TIME_SCALE_MIN, raw));
 }

@@ -4,8 +4,6 @@ import { test } from "node:test";
 import {
   GAIT_IDLE_MAX,
   GAIT_JOG_MAX,
-  JOG_REFERENCE_SPEED,
-  RUN_REFERENCE_SPEED,
   TIME_SCALE_MAX,
   TIME_SCALE_MIN,
   YAW_HALF_LIFE,
@@ -31,27 +29,49 @@ test("gait thresholds match the brief", () => {
 });
 
 test("timeScale tracks speed so stride length stays honest", () => {
-  assert.equal(timeScaleForGait("idle", 0), 1, "idle never speeds up");
-  assert.equal(timeScaleForGait("idle", 9), 1);
+  // Speeds the stand-in's clips actually depict, as measured off the rig.
+  const JOG_CLIP = 1.65;
+  const RUN_CLIP = 2.76;
 
-  // At the clip's reference speed the clip plays at its authored rate.
-  assert.ok(Math.abs(timeScaleForGait("jog", JOG_REFERENCE_SPEED) - 1) < 1e-9);
-  assert.ok(Math.abs(timeScaleForGait("run", RUN_REFERENCE_SPEED) - 1) < 1e-9);
+  assert.equal(timeScaleForGait("idle", 0, 1), 1, "idle never speeds up");
+  assert.equal(timeScaleForGait("idle", 9, 1), 1);
+
+  // At the clip's own ground speed it plays at its authored rate.
+  assert.ok(Math.abs(timeScaleForGait("jog", JOG_CLIP, JOG_CLIP) - 1) < 1e-9);
+  assert.ok(Math.abs(timeScaleForGait("run", RUN_CLIP, RUN_CLIP) - 1) < 1e-9);
+
+  // The property that actually stops skating: within the clamp, stride
+  // distance per unit of clip time equals ground speed.
+  for (const [gait, ref] of [["jog", JOG_CLIP], ["run", RUN_CLIP]] as const) {
+    for (const speed of [1, 2, 3, 4, 5, 6]) {
+      const scale = timeScaleForGait(gait, speed, ref);
+      if (scale <= TIME_SCALE_MIN || scale >= TIME_SCALE_MAX) continue;
+      assert.ok(
+        Math.abs(scale * ref - speed) < 1e-9,
+        `${gait} at ${speed} m/s: clip covers ${scale * ref} m/s, feet would slide`,
+      );
+    }
+  }
 
   // Faster ground speed -> faster playback, monotonically.
   let previous = 0;
   for (let speed = 0.5; speed <= 4; speed += 0.25) {
-    const scale = timeScaleForGait("jog", speed);
+    const scale = timeScaleForGait("jog", speed, JOG_CLIP);
     assert.ok(scale >= previous, "jog timeScale must not go backwards");
     previous = scale;
   }
 
   // Always clamped, so a tracking glitch cannot produce a blur or a freeze.
   for (const speed of [0, 0.001, 1e6, 40]) {
-    for (const gait of ["jog", "run"] as const) {
-      const scale = timeScaleForGait(gait, speed);
+    for (const [gait, ref] of [["jog", JOG_CLIP], ["run", RUN_CLIP]] as const) {
+      const scale = timeScaleForGait(gait, speed, ref);
       assert.ok(scale >= TIME_SCALE_MIN && scale <= TIME_SCALE_MAX, `${gait} @ ${speed}`);
     }
+  }
+
+  // A nonsense reference must not produce a nonsense rate.
+  for (const bad of [0, -1, Number.NaN]) {
+    assert.equal(timeScaleForGait("run", 5, bad), 1);
   }
 });
 

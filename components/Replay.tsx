@@ -6,10 +6,13 @@ import { useEffect, useMemo, useRef } from "react";
 import type { AnimationClip, Mesh } from "three";
 import {
   CLIP_CANDIDATES,
+  DEFAULT_JOG_SPEED,
+  DEFAULT_RUN_SPEED,
   KICK_CONTACT_FRACTION,
   buildProceduralKickClip,
   detectForwardSign,
   fitScale,
+  measureClipGroundSpeed,
   makeInPlace,
   resolveClip,
 } from "@/lib/playerModel";
@@ -114,12 +117,21 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
       home: createTeamMaterial(scene, TEAM_COLOUR.home),
       away: createTeamMaterial(scene, TEAM_COLOUR.away),
     };
-    // Both measured once on the loader's scene, which is still in its bind
+    // All measured once on the loader's scene, which is still in its bind
     // pose; see fitScale for why this cannot be done per clone.
     const scale = fitScale(scene);
     const forward = detectForwardSign(scene);
+
+    // Read the ground speed each clip depicts rather than guessing it, so
+    // playback rate can be matched to the tracked speed and the feet stay put.
+    const gaitSpeeds = {
+      idle: 1,
+      jog: measureClipGroundSpeed(scene, clips.jog, scale) ?? DEFAULT_JOG_SPEED,
+      run: measureClipGroundSpeed(scene, clips.run, scale) ?? DEFAULT_RUN_SPEED,
+    } as const;
+
     return match.meta.players.map((p) =>
-      createPlayerRig(scene, clips, materials[p.team], scale, forward),
+      createPlayerRig(scene, clips, materials[p.team], scale, forward, gaitSpeeds),
     );
   }, [scene, clips, match]);
 
@@ -201,7 +213,11 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
 
   // Development-only handle for inspecting rigs and the sampler from the console.
   if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
-    (window as unknown as { __rigs?: unknown }).__rigs = { rigs, sampler, cues };
+    (window as unknown as { __rigs?: unknown }).__rigs = {
+      rigs, sampler, cues, clips, animations, scene,
+      measure: (name: "jog" | "run") =>
+        measureClipGroundSpeed(scene, clips[name], fitScale(scene)),
+    };
   }
 
   const ballMesh = useRef<Mesh | null>(null);

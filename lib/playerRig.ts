@@ -53,6 +53,8 @@ export interface PlayerRig {
   readonly kickDuration: number;
   /** Which local axis this model calls forward; see detectForwardSign. */
   readonly forward: ForwardSign;
+  /** Ground speed each locomotion clip depicts, metres per second. */
+  readonly gaitSpeeds: Readonly<Record<GaitName, number>>;
 
   /** Current blend weights, parallel to GAITS. Mutated in place each frame. */
   readonly weights: Float32Array;
@@ -81,6 +83,7 @@ export function createPlayerRig(
   material: Material,
   scale: number,
   forward: ForwardSign,
+  gaitSpeeds: Readonly<Record<GaitName, number>>,
 ): PlayerRig {
   const model = cloneSkeleton(source);
   model.scale.setScalar(scale);
@@ -138,6 +141,7 @@ export function createPlayerRig(
     kickIsAdditive: clips.kickIsAdditive,
     kickDuration,
     forward,
+    gaitSpeeds,
     weights,
     yaw: 0,
     yawInitialised: false,
@@ -265,7 +269,9 @@ export function updatePlayerRig(
     const name = GAITS[i]!;
     const action = rig.actions[name];
     action.setEffectiveWeight(rig.weights[i]! * normalise);
-    action.setEffectiveTimeScale(timeScaleForGait(name, speed) * speedScale);
+    action.setEffectiveTimeScale(
+      timeScaleForGait(name, speed, rig.gaitSpeeds[name]) * speedScale,
+    );
   }
 
   if (rig.kickAction !== null) {
