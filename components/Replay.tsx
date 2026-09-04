@@ -25,13 +25,13 @@ import {
   type PlayerRig,
   type RigClips,
 } from "@/lib/playerRig";
+import { BALL_RADIUS } from "@/lib/ballHeight";
 import { FrameSampler } from "@/lib/sampler";
 import { usePlayback } from "@/lib/store";
 import type { MatchData } from "@/lib/types";
 
 export const MODEL_URL = "/models/player.glb";
 
-const BALL_RADIUS = 0.11;
 const TEAM_COLOUR = { home: "#3f7fe0", away: "#d94438" } as const;
 
 /** Longest step the clock will take in one render frame (tab-switch guard). */
@@ -290,8 +290,12 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     const ball = ballMesh.current;
     if (ball) {
       if (present[0] === 1) {
-        // The source is 2D, so the ball has no height and stays on the deck.
-        ball.position.set(positions[0]! - halfLength, BALL_RADIUS, positions[1]! - halfWidth);
+        // Height is inferred from the event data, not measured; see ballHeight.ts.
+        ball.position.set(
+          positions[0]! - halfLength,
+          sampler.ballHeight,
+          positions[1]! - halfWidth,
+        );
         ball.visible = true;
       } else {
         ball.visible = false;

@@ -1,4 +1,4 @@
-import type { MatchData } from "./types";
+import type { MatchData } from "./types.ts";
 
 /**
  * Samples entity positions at an arbitrary time, interpolating between the
@@ -14,6 +14,8 @@ export class FrameSampler {
   readonly velocities: Float32Array;
   /** 1 when the entity has a position this instant, 0 when it does not. */
   readonly present: Uint8Array;
+  /** Height of the ball's centre this instant, metres. Inferred, not measured. */
+  ballHeight: number;
 
   readonly entityCount: number;
   readonly frameCount: number;
@@ -22,6 +24,7 @@ export class FrameSampler {
   readonly duration: number;
 
   private readonly frames: Int16Array;
+  private readonly heights: Float32Array;
   private readonly stride: number;
   private readonly absent: number;
   private readonly invScale: number;
@@ -37,6 +40,7 @@ export class FrameSampler {
     const index = meta.frames;
 
     this.frames = frames;
+    this.heights = match.ballHeights;
     this.stride = index.stride;
     this.absent = index.absent;
     this.invScale = 1 / index.scale;
@@ -48,6 +52,7 @@ export class FrameSampler {
     this.positions = new Float32Array(this.entityCount * 2);
     this.velocities = new Float32Array(this.entityCount * 2);
     this.present = new Uint8Array(this.entityCount);
+    this.ballHeight = 0;
 
     // Periods are stored as source frame numbers; convert once to blob indices.
     this.periodEnds = meta.periods
@@ -117,6 +122,9 @@ export class FrameSampler {
 
     this.lastIndex = i;
     this.lastAlpha = alpha;
+
+    // Height rides on the same pair, so it never blends across the end swap.
+    this.ballHeight = this.heights[i]! + (this.heights[j]! - this.heights[i]!) * alpha;
 
     const { frames, stride, absent, invScale, positions, velocities, present } = this;
     const baseI = i * stride;

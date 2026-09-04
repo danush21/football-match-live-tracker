@@ -70,4 +70,9 @@ export interface MatchData {
   /** Index into frames.entities, by player id. */
   readonly entityIndex: ReadonlyMap<string, number>;
   readonly durationSeconds: number;
+  /**
+   * Inferred height of the ball's centre per frame, metres. Not present in the
+   * source, which is 2D; see lib/ballHeight.ts for what it is derived from.
+   */
+  readonly ballHeights: Float32Array;
 }

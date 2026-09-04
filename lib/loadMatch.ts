@@ -1,3 +1,4 @@
+import { computeBallHeights } from "./ballHeight.ts";
 import type {
   FramesIndex,
   MatchData,
@@ -6,7 +7,7 @@ import type {
   PeriodMeta,
   PlayerMeta,
   TeamSide,
-} from "./types";
+} from "./types.ts";
 
 /**
  * Parse-time validation for the static match assets.
@@ -251,6 +252,7 @@ export function buildMatchData(metaJson: unknown, buffer: ArrayBuffer): MatchDat
     frames,
     entityIndex,
     durationSeconds: (meta.frames.frameCount - 1) / meta.frameRate,
+    ballHeights: computeBallHeights(meta),
   };
 }
 

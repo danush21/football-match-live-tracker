@@ -22,7 +22,7 @@ import {
   yawForVelocity,
   type ForwardSign,
   type GaitName,
-} from "./playerModel";
+} from "./playerModel.ts";
 
 const GAITS: readonly GaitName[] = ["idle", "jog", "run"];
 
