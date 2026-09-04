@@ -1,0 +1,100 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #0a0d10;
+  color: #e8edf2;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  overscroll-behavior: none;
+}
+
+#root-shell {
+  position: fixed;
+  inset: 0;
+}
+
+.canvas-host {
+  position: absolute;
+  inset: 0;
+}
+
+.centre-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 0.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: #93a1ad;
+}
+
+.centre-message strong {
+  color: #e8edf2;
+  font-weight: 600;
+}
+
+.centre-message code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: #e8934a;
+  max-width: 46rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transport {
+  position: absolute;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(14, 18, 23, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(12px);
+  user-select: none;
+}
+
+.transport button {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #e8edf2;
+  color: #0a0d10;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.transport button:hover {
+  background: #fff;
+}
+
+.clock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  min-width: 5.5rem;
+  text-align: center;
+}
+
+.hint {
+  font-size: 0.72rem;
+  color: #6f7d89;
+  padding-right: 0.15rem;
+}

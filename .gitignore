@@ -7,3 +7,4 @@ out/
 # Raw Metrica CSVs (66 MB) - re-download with scripts/fetch-data.sh
 data-raw/
 __pycache__/
+next-env.d.ts
