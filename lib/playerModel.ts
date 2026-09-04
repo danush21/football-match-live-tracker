@@ -4,6 +4,7 @@ import {
   AnimationUtils,
   Box3,
   InterpolateSmooth,
+  Matrix4,
   Object3D,
   Quaternion,
   QuaternionKeyframeTrack,
@@ -45,10 +46,14 @@ export const YAW_HALF_LIFE = 0.085;
 export const TARGET_HEIGHT_METRES = 1.8;
 
 /**
- * Yaw added after atan2(vx, vz) to account for which way the model faces in
- * its bind pose. Mixamo characters face +Z, which atan2(x, z) already targets.
+ * Which local axis the model treats as forward: +1 for +Z, -1 for -Z.
+ *
+ * Mixamo characters come through glTF facing -Z, so this is the usual answer,
+ * but it is measured per model by detectForwardSign rather than assumed --
+ * getting it wrong rotates every player 180 degrees and they all run backwards.
  */
-export const MODEL_YAW_OFFSET = 0;
+export type ForwardSign = 1 | -1;
+export const DEFAULT_FORWARD_SIGN: ForwardSign = -1;
 
 /** Clip names to look for, in order. Covers the stand-in and Mixamo naming. */
 export const CLIP_CANDIDATES = {
@@ -263,9 +268,41 @@ export function stepYaw(current: number, target: number, dt: number): number {
   return current + shortest * k;
 }
 
-/** Yaw that points the model's forward axis along a world-space velocity. */
-export function yawForVelocity(vx: number, vz: number): number {
-  return Math.atan2(vx, vz) + MODEL_YAW_OFFSET;
+/**
+ * Yaw that points the model's forward axis along a world-space velocity.
+ *
+ * Rotating by yaw about Y maps local +Z to (sin yaw, cos yaw). For a model
+ * whose forward is +Z that means yaw = atan2(vx, vz); for one facing -Z the
+ * forward maps to (-sin yaw, -cos yaw), so yaw picks up a half turn.
+ */
+export function yawForVelocity(vx: number, vz: number, forward: ForwardSign): number {
+  const yaw = Math.atan2(vx, vz);
+  return forward === 1 ? yaw : yaw + Math.PI;
+}
+
+/**
+ * Work out which way a rigged humanoid faces by measuring heel to toe.
+ *
+ * Called once on the loader's scene, which is still in its bind pose, so the
+ * feet point straight ahead. Falls back to the Mixamo norm if the rig is not
+ * recognisable, and the result is logged in development so a model swap that
+ * measures oddly is visible rather than silently backwards.
+ */
+export function detectForwardSign(root: Object3D): ForwardSign {
+  const foot = findBone(root, "leftfoot");
+  const toe = findBone(root, "lefttoeend") ?? findBone(root, "lefttoebase");
+  if (foot === null || toe === null) return DEFAULT_FORWARD_SIGN;
+
+  root.updateMatrixWorld(true);
+  const toLocal = new Matrix4().copy(root.matrixWorld).invert();
+  const a = new Vector3().setFromMatrixPosition(foot.matrixWorld).applyMatrix4(toLocal);
+  const b = new Vector3().setFromMatrixPosition(toe.matrixWorld).applyMatrix4(toLocal);
+  const dz = b.z - a.z;
+
+  // A near-zero reading means the feet are not pointing along Z at all; trust
+  // the default rather than a coin flip.
+  if (Math.abs(dz) < 1e-4) return DEFAULT_FORWARD_SIGN;
+  return dz > 0 ? 1 : -1;
 }
 
 /** Which gait a speed maps to. */

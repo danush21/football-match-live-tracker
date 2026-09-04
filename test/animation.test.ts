@@ -54,12 +54,37 @@ test("timeScale tracks speed so stride length stays honest", () => {
   }
 });
 
-test("facing points along the direction of travel", () => {
-  // atan2(x, z): +z is the model's forward, so moving +z means yaw 0.
-  assert.ok(Math.abs(arc(yawForVelocity(0, 1), 0)) < 1e-9);
-  assert.ok(Math.abs(arc(yawForVelocity(1, 0), Math.PI / 2)) < 1e-9);
-  assert.ok(Math.abs(arc(yawForVelocity(0, -1), Math.PI)) < 1e-9);
-  assert.ok(Math.abs(arc(yawForVelocity(-1, 0), -Math.PI / 2)) < 1e-9);
+test("facing points along the direction of travel, for either model axis", () => {
+  // Assert what actually matters: after rotating by the yaw, the model's own
+  // forward axis lines up with the velocity. Asserting the raw angle instead
+  // is what let a 180 degree error ship -- every player ran backwards.
+  for (const forward of [1, -1] as const) {
+    for (const [vx, vz] of [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+      [0.6, -0.8],
+      [-3, -4],
+    ] as const) {
+      const yaw = yawForVelocity(vx, vz, forward);
+      // Rotating local (0, 0, forward) by yaw about Y.
+      const wx = forward * Math.sin(yaw);
+      const wz = forward * Math.cos(yaw);
+      const length = Math.hypot(vx, vz);
+      assert.ok(
+        Math.abs(wx - vx / length) < 1e-9 && Math.abs(wz - vz / length) < 1e-9,
+        `forward ${forward}, velocity (${vx}, ${vz}): faced (${wx}, ${wz})`,
+      );
+    }
+  }
+});
+
+test("a -Z model is turned a half circle from a +Z one", () => {
+  for (const [vx, vz] of [[1, 2], [-1, 0.5], [0, -1]] as const) {
+    const gap = Math.abs(arc(yawForVelocity(vx, vz, 1), yawForVelocity(vx, vz, -1)));
+    assert.ok(Math.abs(gap - Math.PI) < 1e-9, `expected a half turn, got ${gap}`);
+  }
 });
 
 test("yaw takes the short way round, never the long way", () => {

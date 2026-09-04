@@ -7,6 +7,7 @@ import type { AnimationClip, Mesh } from "three";
 import {
   CLIP_CANDIDATES,
   buildProceduralKickClip,
+  detectForwardSign,
   fitScale,
   makeInPlace,
   resolveClip,
@@ -103,10 +104,12 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
       home: createTeamMaterial(scene, TEAM_COLOUR.home),
       away: createTeamMaterial(scene, TEAM_COLOUR.away),
     };
-    // Measured once on the loader's scene; see fitScale for why not per clone.
+    // Both measured once on the loader's scene, which is still in its bind
+    // pose; see fitScale for why this cannot be done per clone.
     const scale = fitScale(scene);
+    const forward = detectForwardSign(scene);
     return match.meta.players.map((p) =>
-      createPlayerRig(scene, clips, materials[p.team], scale),
+      createPlayerRig(scene, clips, materials[p.team], scale, forward),
     );
   }, [scene, clips, match]);
 

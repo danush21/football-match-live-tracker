@@ -19,6 +19,7 @@ import {
   stepYaw,
   timeScaleForGait,
   yawForVelocity,
+  type ForwardSign,
   type GaitName,
 } from "./playerModel";
 
@@ -49,6 +50,8 @@ export interface PlayerRig {
   readonly kickAction: AnimationAction | null;
   readonly kickIsAdditive: boolean;
   readonly kickDuration: number;
+  /** Which local axis this model calls forward; see detectForwardSign. */
+  readonly forward: ForwardSign;
 
   /** Current blend weights, parallel to GAITS. Mutated in place each frame. */
   readonly weights: Float32Array;
@@ -73,6 +76,7 @@ export function createPlayerRig(
   clips: RigClips,
   material: Material,
   scale: number,
+  forward: ForwardSign,
 ): PlayerRig {
   const model = cloneSkeleton(source);
   model.scale.setScalar(scale);
@@ -129,6 +133,7 @@ export function createPlayerRig(
     kickAction,
     kickIsAdditive: clips.kickIsAdditive,
     kickDuration,
+    forward,
     weights,
     yaw: 0,
     yawInitialised: false,
@@ -189,7 +194,7 @@ export function updatePlayerRig(
 
   // --- facing ---------------------------------------------------------
   if (speed > FACING_MIN_SPEED) {
-    const target = yawForVelocity(vx, vz);
+    const target = yawForVelocity(vx, vz, rig.forward);
     if (!rig.yawInitialised) {
       rig.yaw = target;
       rig.yawInitialised = true;
