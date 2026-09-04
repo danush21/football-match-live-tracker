@@ -15,6 +15,7 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import {
   CROSSFADE_SECONDS,
   FACING_MIN_SPEED,
+  blendYaw,
   gaitForSpeed,
   stepYaw,
   timeScaleForGait,
@@ -60,6 +61,9 @@ export interface PlayerRig {
   /** Seconds of kick still to play; drives the kick layer's weight. */
   kickRemaining: number;
   kickWeight: number;
+  /** Yaw to face while striking, when the kick's direction is known. */
+  kickYaw: number;
+  kickYawValid: boolean;
   wasVisible: boolean;
 }
 
@@ -139,18 +143,34 @@ export function createPlayerRig(
     yawInitialised: false,
     kickRemaining: 0,
     kickWeight: 0,
+    kickYaw: 0,
+    kickYawValid: false,
     wasVisible: false,
   };
 }
 
-/** Start the one-shot kick on this rig, restarting it if one is already running. */
-export function fireKick(rig: PlayerRig): void {
+/**
+ * Start the one-shot kick on this rig, restarting it if one is already running.
+ *
+ * `dirX`/`dirZ` is the world-space direction the ball is about to travel. When
+ * it is known the player turns to face it for the duration of the strike, which
+ * is what makes a pass read as deliberate rather than as a leg twitch while
+ * running somewhere else. Pass (0, 0) to leave facing on the velocity.
+ */
+export function fireKick(rig: PlayerRig, dirX: number, dirZ: number): void {
   if (rig.kickAction === null) return;
   rig.kickAction.reset();
   rig.kickAction.setLoop(LoopOnce, 1);
   rig.kickAction.clampWhenFinished = true;
   rig.kickAction.play();
   rig.kickRemaining = rig.kickDuration;
+
+  if (Math.hypot(dirX, dirZ) > 1e-6) {
+    rig.kickYaw = yawForVelocity(dirX, dirZ, rig.forward);
+    rig.kickYawValid = true;
+  } else {
+    rig.kickYawValid = false;
+  }
 }
 
 /**
@@ -192,9 +212,28 @@ export function updatePlayerRig(
 
   const speed = Math.hypot(vx, vz);
 
+  // --- kick envelope --------------------------------------------------
+  // Updated before facing, which reads kickWeight to decide where to look.
+  if (rig.kickRemaining > 0) {
+    rig.kickRemaining -= animDt;
+  }
+  const kickTarget = rig.kickRemaining > 0 ? 1 : 0;
+  const kickRate = kickTarget > rig.kickWeight ? KICK_FADE_IN : KICK_FADE_OUT;
+  rig.kickWeight += (kickTarget - rig.kickWeight) * (dt <= 0 ? 1 : Math.min(1, dt / kickRate));
+
   // --- facing ---------------------------------------------------------
-  if (speed > FACING_MIN_SPEED) {
-    const target = yawForVelocity(vx, vz, rig.forward);
+  const moving = speed > FACING_MIN_SPEED;
+  const travelYaw = moving ? yawForVelocity(vx, vz, rig.forward) : rig.yaw;
+
+  // While striking, turn toward where the ball is going, fading back to the
+  // direction of travel as the kick finishes. A stationary player still turns:
+  // the speed threshold only governs the travel-derived facing.
+  let target: number | null = moving ? travelYaw : null;
+  if (rig.kickYawValid && rig.kickWeight > 0.005) {
+    target = blendYaw(travelYaw, rig.kickYaw, rig.kickWeight);
+  }
+
+  if (target !== null) {
     if (!rig.yawInitialised) {
       rig.yaw = target;
       rig.yawInitialised = true;
@@ -217,14 +256,6 @@ export function updatePlayerRig(
     rig.weights[i] = next;
     total += next;
   }
-
-  // --- kick layer -----------------------------------------------------
-  if (rig.kickRemaining > 0) {
-    rig.kickRemaining -= animDt;
-  }
-  const kickTarget = rig.kickRemaining > 0 ? 1 : 0;
-  const kickRate = kickTarget > rig.kickWeight ? KICK_FADE_IN : KICK_FADE_OUT;
-  rig.kickWeight += (kickTarget - rig.kickWeight) * (dt <= 0 ? 1 : Math.min(1, dt / kickRate));
 
   // A full-body kick replaces the gait; an additive one rides on top of it.
   const gaitScale = rig.kickIsAdditive ? 1 : 1 - rig.kickWeight;

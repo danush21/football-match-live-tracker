@@ -37,6 +37,13 @@ export const RUN_REFERENCE_SPEED = 5.4;
 export const TIME_SCALE_MIN = 0.55;
 export const TIME_SCALE_MAX = 1.9;
 
+/**
+ * Where in the kick clip the foot meets the ball, as a fraction of its length.
+ * The one-shot is fired this far ahead of the event so the strike lands on the
+ * frame the pass actually happens rather than a beat after it.
+ */
+export const KICK_CONTACT_FRACTION = 0.48;
+
 /** Below this the player holds its previous facing rather than spinning. */
 export const FACING_MIN_SPEED = 0.5;
 /** Time for the yaw to close half the gap to its target, seconds. */
@@ -278,6 +285,13 @@ export function stepYaw(current: number, target: number, dt: number): number {
 export function yawForVelocity(vx: number, vz: number, forward: ForwardSign): number {
   const yaw = Math.atan2(vx, vz);
   return forward === 1 ? yaw : yaw + Math.PI;
+}
+
+/** Move a fraction `t` along the shortest arc from `from` to `to`. */
+export function blendYaw(from: number, to: number, t: number): number {
+  const delta = to - from;
+  const shortest = Math.atan2(Math.sin(delta), Math.cos(delta));
+  return from + shortest * t;
 }
 
 /**

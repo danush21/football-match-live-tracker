@@ -9,6 +9,7 @@ import {
   TIME_SCALE_MAX,
   TIME_SCALE_MIN,
   YAW_HALF_LIFE,
+  blendYaw,
   gaitForSpeed,
   stepYaw,
   timeScaleForGait,
@@ -135,4 +136,37 @@ test("a stationary player holds its yaw rather than spinning", () => {
   // stepYaw is only called above FACING_MIN_SPEED, but dt<=0 must be inert too.
   assert.equal(stepYaw(0.7, -2.4, 0), 0.7);
   assert.equal(stepYaw(0.7, -2.4, -1), 0.7);
+});
+
+test("blendYaw moves along the shortest arc and honours its endpoints", () => {
+  const a = 0.4;
+  const b = -2.8;
+  assert.ok(Math.abs(arc(blendYaw(a, b, 0), a)) < 1e-9, "t=0 stays put");
+  assert.ok(Math.abs(arc(blendYaw(a, b, 1), b)) < 1e-9, "t=1 arrives");
+
+  // Halfway must be halfway along the SHORT arc, not the long one.
+  const half = blendYaw(a, b, 0.5);
+  const shortGap = Math.abs(arc(a, b));
+  assert.ok(Math.abs(Math.abs(arc(a, half)) - shortGap / 2) < 1e-9);
+  assert.ok(Math.abs(Math.abs(arc(half, b)) - shortGap / 2) < 1e-9);
+
+  // Across the wrap: 175 deg to -175 deg is 10 deg, so the midpoint is at the seam.
+  const mid = blendYaw(Math.PI - 0.087, -Math.PI + 0.087, 0.5);
+  assert.ok(Math.abs(Math.abs(arc(mid, Math.PI))) < 1e-6, `midpoint should sit at pi, got ${mid}`);
+});
+
+test("a kick's facing overrides travel only while the strike is live", () => {
+  // The blend weight is the kick envelope: 0 leaves facing on the travel
+  // direction, 1 commits fully to the ball's direction.
+  const travel = 1.0;
+  const kick = -2.0;
+  assert.ok(Math.abs(arc(blendYaw(travel, kick, 0), travel)) < 1e-9);
+  assert.ok(Math.abs(arc(blendYaw(travel, kick, 1), kick)) < 1e-9);
+  // Monotonic in between, so the turn in and the settle back are both smooth.
+  let previous = 0;
+  for (let w = 0; w <= 1; w += 0.05) {
+    const moved = Math.abs(arc(travel, blendYaw(travel, kick, w)));
+    assert.ok(moved >= previous - 1e-9, "turn must not reverse as the kick ramps");
+    previous = moved;
+  }
 });

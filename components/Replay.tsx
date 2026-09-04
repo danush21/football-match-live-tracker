@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { AnimationClip, Mesh } from "three";
 import {
   CLIP_CANDIDATES,
+  KICK_CONTACT_FRACTION,
   buildProceduralKickClip,
   detectForwardSign,
   fitScale,
@@ -43,20 +44,29 @@ const MAX_FIRE_SPAN = 60;
 /** Event types that should trigger the kick animation. */
 const KICK_TYPES = new Set(["PASS", "SHOT"]);
 
+/** Shortest ball travel that counts as a direction rather than a wobble. */
+const MIN_KICK_TRAVEL_METRES = 1;
+
 interface KickCue {
-  /** Blob index of the event. */
-  readonly index: number;
+  /**
+   * Blob index at which to start the animation. Earlier than the event itself
+   * by the clip's run-up, so the foot meets the ball on the event frame.
+   */
+  readonly fireAt: number;
   /** Position of the acting player in the rig array. */
   readonly rig: number;
+  /** World-space direction the ball is about to travel; (0, 0) when unknown. */
+  readonly dirX: number;
+  readonly dirZ: number;
 }
 
-/** First cue strictly after `index`. */
+/** First cue that should not have fired by `index`. */
 function cueUpperBound(cues: readonly KickCue[], index: number): number {
   let lo = 0;
   let hi = cues.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (cues[mid]!.index <= index) lo = mid + 1;
+    if (cues[mid]!.fireAt <= index) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -127,18 +137,67 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
 
   // --- kick cues --------------------------------------------------------
   const cues: readonly KickCue[] = useMemo(() => {
+    const { frames: index, players, events, frameRate } = match.meta;
+    const { startFrame, stride, absent, scale, frameCount } = index;
+    const blob = match.frames;
+
+    /** Pitch-space position of an entity, or null when it has none. */
+    const at = (frame: number, slot: number): readonly [number, number] | null => {
+      if (frame < 0 || frame >= frameCount) return null;
+      const o = frame * stride + slot * 2;
+      const x = blob[o]!;
+      return x === absent ? null : [x / scale, blob[o + 1]! / scale];
+    };
+
     const rigOf = new Map<string, number>();
-    match.meta.players.forEach((p, i) => rigOf.set(p.id, i));
+    players.forEach((p, i) => rigOf.set(p.id, i));
+
+    // Fire the animation its run-up ahead of the event so the strike lands on it.
+    const lead = Math.round((clips.kick?.duration ?? 0) * KICK_CONTACT_FRACTION * frameRate);
+
     const out: KickCue[] = [];
-    for (const event of match.meta.events) {
+    for (const event of events) {
       if (!KICK_TYPES.has(event.type) || event.from === null) continue;
       const rig = rigOf.get(event.from);
       if (rig === undefined) continue;
-      out.push({ index: event.frame - match.meta.frames.startFrame, rig });
+
+      const start = event.frame - startFrame;
+      let dirX = 0;
+      let dirZ = 0;
+
+      // Preferred: where the ball actually went. Covers 819 of the 823 kicks.
+      const ballStart = at(start, 0);
+      const ballEnd = event.endFrame === null ? null : at(event.endFrame - startFrame, 0);
+      if (ballStart !== null && ballEnd !== null) {
+        const dx = ballEnd[0] - ballStart[0];
+        const dz = ballEnd[1] - ballStart[1];
+        if (Math.hypot(dx, dz) >= MIN_KICK_TRAVEL_METRES) {
+          dirX = dx;
+          dirZ = dz;
+        }
+      }
+
+      // Fallback: aim at the intended receiver.
+      if (dirX === 0 && dirZ === 0 && event.to !== null) {
+        const actorSlot = match.entityIndex.get(event.from);
+        const targetSlot = match.entityIndex.get(event.to);
+        const actor = actorSlot === undefined ? null : at(start, actorSlot);
+        const receiver = targetSlot === undefined ? null : at(start, targetSlot);
+        if (actor !== null && receiver !== null) {
+          const dx = receiver[0] - actor[0];
+          const dz = receiver[1] - actor[1];
+          if (Math.hypot(dx, dz) >= MIN_KICK_TRAVEL_METRES) {
+            dirX = dx;
+            dirZ = dz;
+          }
+        }
+      }
+
+      out.push({ fireAt: Math.max(0, start - lead), rig, dirX, dirZ });
     }
-    out.sort((a, b) => a.index - b.index);
+    out.sort((a, b) => a.fireAt - b.fireAt);
     return out;
-  }, [match]);
+  }, [match, clips]);
 
   // Development-only handle for inspecting rigs and the sampler from the console.
   if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
@@ -181,10 +240,10 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     if (seeked || previous < 0 || frameIndex < previous || frameIndex - previous > MAX_FIRE_SPAN) {
       cueCursor.current = cueUpperBound(cues, frameIndex);
     } else {
-      while (cueCursor.current < cues.length && cues[cueCursor.current]!.index <= frameIndex) {
+      while (cueCursor.current < cues.length && cues[cueCursor.current]!.fireAt <= frameIndex) {
         const cue = cues[cueCursor.current]!;
         const rig = rigs[cue.rig];
-        if (rig !== undefined && rig.wasVisible) fireKick(rig);
+        if (rig !== undefined && rig.wasVisible) fireKick(rig, cue.dirX, cue.dirZ);
         cueCursor.current += 1;
       }
     }
