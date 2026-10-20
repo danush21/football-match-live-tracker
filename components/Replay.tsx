@@ -3,7 +3,7 @@
 import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
-import type { AnimationClip, Mesh } from "three";
+import type { AnimationClip, Mesh, PerspectiveCamera } from "three";
 import {
   CLIP_CANDIDATES,
   DEFAULT_JOG_SPEED,
@@ -26,7 +26,7 @@ import {
   type PlayerRig,
   type RigClips,
 } from "@/lib/playerRig";
-import { BALL_RADIUS } from "@/lib/ballHeight";
+import { BALL_RADIUS, ballScaleForDistance } from "@/lib/ball";
 import { appearanceFor, detectGoalkeepers } from "@/lib/kit";
 import { FrameSampler } from "@/lib/sampler";
 import { usePlayback } from "@/lib/store";
@@ -245,7 +245,7 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
   const halfLength = match.meta.pitch.length / 2;
   const halfWidth = match.meta.pitch.width / 2;
 
-  useFrame((_, rawDelta) => {
+  useFrame((state, rawDelta) => {
     const store = usePlayback.getState();
     const delta = Math.min(rawDelta, MAX_DELTA);
 
@@ -312,6 +312,18 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
           sampler.ballHeight,
           positions[1]! - halfWidth,
         );
+        // A real-sized ball is under two pixels across at a broadcast camera,
+        // so hold it to a minimum apparent size. True size up close.
+        const camera = state.camera as PerspectiveCamera;
+        if (camera.isPerspectiveCamera === true) {
+          ball.scale.setScalar(
+            ballScaleForDistance(
+              camera.position.distanceTo(ball.position),
+              camera.fov,
+              state.size.height,
+            ),
+          );
+        }
         ball.visible = true;
       } else {
         ball.visible = false;

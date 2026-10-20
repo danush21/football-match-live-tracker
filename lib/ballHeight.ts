@@ -1,3 +1,4 @@
+import { BALL_RADIUS } from "./ball.ts";
 import type { MatchEvent, MatchMeta } from "./types.ts";
 
 /**
@@ -24,8 +25,6 @@ import type { MatchEvent, MatchMeta } from "./types.ts";
 
 const GRAVITY = 9.81;
 
-/** Resting height of the ball's centre, metres. */
-export const BALL_RADIUS = 0.11;
 /** Where a header or aerial duel meets the ball. */
 const HEAD_HEIGHT = 1.85;
 /** Where a throw-in leaves the hands. */

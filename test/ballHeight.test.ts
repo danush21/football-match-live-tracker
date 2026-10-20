@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { BALL_RADIUS, computeBallHeights } from "../lib/ballHeight.ts";
+import { BALL_RADIUS } from "../lib/ball.ts";
+import { computeBallHeights } from "../lib/ballHeight.ts";
 import { buildMatchData } from "../lib/loadMatch.ts";
 import type { MatchData } from "../lib/types.ts";
 
