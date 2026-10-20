@@ -8,7 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "test": "node --no-warnings --test test/*.test.ts"
+    "test": "node --no-warnings --experimental-strip-types --test test/*.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.0.0",
