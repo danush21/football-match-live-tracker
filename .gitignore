@@ -8,3 +8,6 @@ out/
 data-raw/
 __pycache__/
 next-env.d.ts
+
+# Raw Mixamo FBX downloads; converted into public/models/player.glb
+mixamo/

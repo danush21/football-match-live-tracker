@@ -51,11 +51,12 @@ export const TIME_SCALE_MIN = 0.25;
 export const TIME_SCALE_MAX = 3;
 
 /**
- * Where in the kick clip the foot meets the ball, as a fraction of its length.
+ * Fallback for where in the kick clip the foot meets the ball, as a fraction
+ * of its length. Only used when measureKickContact cannot read it off the rig.
  * The one-shot is fired this far ahead of the event so the strike lands on the
  * frame the pass actually happens rather than a beat after it.
  */
-export const KICK_CONTACT_FRACTION = 0.48;
+export const DEFAULT_KICK_CONTACT_FRACTION = 0.45;
 
 /** Below this the player holds its previous facing rather than spinning. */
 export const FACING_MIN_SPEED = 0.5;
@@ -414,6 +415,90 @@ export function blendYaw(from: number, to: number, t: number): number {
   const delta = to - from;
   const shortest = Math.atan2(Math.sin(delta), Math.cos(delta));
   return from + shortest * t;
+}
+
+/**
+ * Find where in a kick clip the foot actually meets the ball, as a fraction of
+ * the clip's length.
+ *
+ * Contact is the instant the kicking foot is travelling forward fastest. Note
+ * *forward*, not fastest overall: the quickest the foot ever moves is usually
+ * the recovery swing back down afterwards, so taking raw speed puts contact at
+ * the end of the clip and every kick lands late. The foot's motion is projected
+ * onto the body's own forward axis, taken from the shoulders because they stay
+ * put through a stride while the feet do not.
+ *
+ * Returns null if the rig is unrecognisable or the clip has no clear forward
+ * swing, in which case the caller keeps its default.
+ */
+export function measureKickContact(
+  scene: Object3D,
+  clip: AnimationClip,
+  scale: number,
+): number | null {
+  const model = cloneSkeleton(scene);
+  model.scale.setScalar(scale);
+
+  const hips = findBone(model, "hips");
+  const leftArm = findBone(model, "leftarm");
+  const rightArm = findBone(model, "rightarm");
+  const feet = [findBone(model, "leftfoot"), findBone(model, "rightfoot")];
+  if (hips === null || leftArm === null || rightArm === null) return null;
+  if (feet[0] === null || feet[1] === null) return null;
+
+  const mixer = new AnimationMixer(model);
+  const action = mixer.clipAction(clip);
+  action.setEffectiveWeight(1);
+  action.play();
+
+  const SAMPLES = 72;
+  const dt = clip.duration / SAMPLES;
+  if (!(dt > 0)) return null;
+
+  const forwardOffset = [new Float64Array(SAMPLES + 1), new Float64Array(SAMPLES + 1)];
+
+  for (let i = 0; i <= SAMPLES; i += 1) {
+    mixer.update(i === 0 ? 0 : dt);
+    model.updateMatrixWorld(true);
+
+    const h = hips.matrixWorld.elements;
+    const la = leftArm.matrixWorld.elements;
+    const ra = rightArm.matrixWorld.elements;
+    // Body forward = left x up, with left running from the right arm to the left.
+    const leftX = la[12]! - ra[12]!;
+    const leftZ = la[14]! - ra[14]!;
+    const fx = -leftZ;
+    const fz = leftX;
+    const flen = Math.hypot(fx, fz);
+    if (flen < 1e-6) continue;
+
+    for (let f = 0; f < 2; f += 1) {
+      const e = feet[f]!.matrixWorld.elements;
+      forwardOffset[f]![i] = ((e[12]! - h[12]!) * fx + (e[14]! - h[14]!) * fz) / flen;
+    }
+  }
+
+  mixer.stopAllAction();
+  mixer.uncacheRoot(model);
+
+  let bestVelocity = 0;
+  let bestIndex = -1;
+  for (let f = 0; f < 2; f += 1) {
+    const track = forwardOffset[f]!;
+    for (let i = 1; i <= SAMPLES; i += 1) {
+      const velocity = (track[i]! - track[i - 1]!) / dt;
+      if (velocity > bestVelocity) {
+        bestVelocity = velocity;
+        bestIndex = i;
+      }
+    }
+  }
+
+  // A real strike swings the foot forward hard; anything slower is not a kick.
+  if (bestIndex < 0 || bestVelocity < 1.5) return null;
+  const fraction = bestIndex / SAMPLES;
+  if (fraction <= 0.02 || fraction >= 0.98) return null;
+  return fraction;
 }
 
 /**

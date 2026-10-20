@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "test": "node --no-warnings --experimental-strip-types --test test/*.test.ts"
+    "test": "node --no-warnings --experimental-strip-types --test test/*.test.ts",
+    "build:model": "node scripts/build-player-model.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.0.0",
@@ -20,10 +21,13 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.171.0",
+    "fbx2gltf": "^0.9.7-p1",
     "typescript": "^5.7.0"
   }
 }

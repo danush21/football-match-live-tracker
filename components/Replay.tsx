@@ -8,11 +8,12 @@ import {
   CLIP_CANDIDATES,
   DEFAULT_JOG_SPEED,
   DEFAULT_RUN_SPEED,
-  KICK_CONTACT_FRACTION,
+  DEFAULT_KICK_CONTACT_FRACTION,
   buildProceduralKickClip,
   detectForwardSign,
   fitScale,
   measureClipGroundSpeed,
+  measureKickContact,
   makeInPlace,
   resolveClip,
 } from "@/lib/playerModel";
@@ -164,8 +165,14 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     const rigOf = new Map<string, number>();
     players.forEach((p, i) => rigOf.set(p.id, i));
 
-    // Fire the animation its run-up ahead of the event so the strike lands on it.
-    const lead = Math.round((clips.kick?.duration ?? 0) * KICK_CONTACT_FRACTION * frameRate);
+    // Fire the one-shot this far early so the strike lands on the event frame
+    // rather than a beat after it. Read off the clip; see measureKickContact.
+    const kick = clips.kick;
+    const contact =
+      kick === null
+        ? DEFAULT_KICK_CONTACT_FRACTION
+        : (measureKickContact(scene, kick, fitScale(scene)) ?? DEFAULT_KICK_CONTACT_FRACTION);
+    const lead = Math.round((kick?.duration ?? 0) * contact * frameRate);
 
     const out: KickCue[] = [];
     for (const event of events) {
@@ -209,7 +216,7 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     }
     out.sort((a, b) => a.fireAt - b.fireAt);
     return out;
-  }, [match, clips]);
+  }, [match, clips, scene]);
 
   // Development-only handle for inspecting rigs and the sampler from the console.
   if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
