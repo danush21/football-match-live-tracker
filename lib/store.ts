@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import type { CameraMode } from "./cameraPresets.ts";
 
 /**
  * Playback state that React needs to see.
@@ -21,6 +22,7 @@ interface PlaybackState {
   displayTime: number;
   /** Set by seek(); the scene consumes it and resets it to null. */
   pendingSeek: number | null;
+  cameraMode: CameraMode;
 
   play: () => void;
   pause: () => void;
@@ -29,6 +31,7 @@ interface PlaybackState {
   seek: (seconds: number) => void;
   consumeSeek: () => number | null;
   setDisplayTime: (seconds: number) => void;
+  setCameraMode: (mode: CameraMode) => void;
 }
 
 export const usePlayback = create<PlaybackState>((set, get) => ({
@@ -36,6 +39,7 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
   speed: 1,
   displayTime: 0,
   pendingSeek: null,
+  cameraMode: "broadcast",
 
   play: () => set({ playing: true }),
   pause: () => set({ playing: false }),
@@ -48,6 +52,7 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
     return pending;
   },
   setDisplayTime: (seconds) => set({ displayTime: seconds }),
+  setCameraMode: (cameraMode) => set({ cameraMode }),
 }));
 
 // Development-only handle so the playback clock can be driven from the console

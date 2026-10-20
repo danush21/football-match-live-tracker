@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Scene } from "@/components/Scene";
+import { EventList } from "@/components/EventList";
 import { Transport } from "@/components/Transport";
 import { loadMatch } from "@/lib/loadMatch";
 import type { MatchData } from "@/lib/types";
@@ -52,7 +53,8 @@ export default function Page(): React.JSX.Element {
       <div className="canvas-host">
         <Scene match={state.match} />
       </div>
-      <Transport duration={state.match.durationSeconds} />
+      <EventList meta={state.match.meta} />
+      <Transport meta={state.match.meta} duration={state.match.durationSeconds} />
     </>
   );
 }

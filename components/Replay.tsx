@@ -3,6 +3,7 @@
 import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
+import { Vector3 } from "three";
 import type { AnimationClip, Mesh, PerspectiveCamera } from "three";
 import {
   CLIP_CANDIDATES,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/playerRig";
 import { BALL_RADIUS, ballScaleForDistance } from "@/lib/ball";
 import { appearanceFor, detectGoalkeepers } from "@/lib/kit";
+import { applyCameraPreset, followBall, type CameraMode, type OrbitLike } from "@/lib/cameraPresets";
 import { FrameSampler } from "@/lib/sampler";
 import { usePlayback } from "@/lib/store";
 import type { MatchData } from "@/lib/types";
@@ -237,6 +239,9 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
   }
 
   const ballMesh = useRef<Mesh | null>(null);
+  const appliedCameraMode = useRef<CameraMode | null>(null);
+  /** Reused every frame; nothing may be allocated in the render loop. */
+  const scratch = useMemo(() => new Vector3(), []);
   const clock = useRef(0);
   const sinceDisplayPush = useRef(0);
   const cueCursor = useRef(0);
@@ -327,6 +332,26 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
         ball.visible = true;
       } else {
         ball.visible = false;
+      }
+    }
+
+    // --- camera ---------------------------------------------------------
+    const controls = state.controls as unknown as OrbitLike | null;
+    const perspective = state.camera as PerspectiveCamera;
+    if (controls !== null && perspective.isPerspectiveCamera === true) {
+      const mode = store.cameraMode;
+      const ballVisible = ball !== null && ball.visible;
+      if (appliedCameraMode.current !== mode) {
+        applyCameraPreset(
+          mode,
+          perspective,
+          controls,
+          match.meta.pitch,
+          ballVisible && ball !== null ? ball.position : null,
+        );
+        appliedCameraMode.current = mode;
+      } else if (mode === "ball" && ballVisible && ball !== null) {
+        followBall(perspective, controls, ball.position, delta, scratch);
       }
     }
 
