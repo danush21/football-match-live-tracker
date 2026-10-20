@@ -28,6 +28,34 @@ test("gait thresholds match the brief", () => {
   assert.equal(gaitForSpeed(9), "run");
 });
 
+test("gait thresholds resist flapping at the boundary", () => {
+  // A player cruising on the jog/run line must not flicker between clips:
+  // every switch restarts a crossfade, and a permanent crossfade is the worst
+  // case for foot skating because two postures are being averaged.
+  assert.equal(gaitForSpeed(4.5, "jog"), "run", "clearly over the line, switch");
+  assert.equal(gaitForSpeed(4.2, "jog"), "jog", "only just over: hold the jog");
+  assert.equal(gaitForSpeed(3.9, "run"), "run", "only just under: hold the run");
+  assert.equal(gaitForSpeed(3.4, "run"), "jog", "well under: drop to jog");
+
+  assert.equal(gaitForSpeed(0.52, "idle"), "idle", "only just moving: stay idle");
+  assert.equal(gaitForSpeed(0.6, "idle"), "jog", "clearly moving: start jogging");
+  assert.equal(gaitForSpeed(0.48, "jog"), "jog", "barely slowed: keep jogging");
+  assert.equal(gaitForSpeed(0.4, "jog"), "idle", "stopped: go idle");
+
+  // Hovering exactly on a boundary must settle, not oscillate.
+  let gait = gaitForSpeed(GAIT_JOG_MAX, "jog");
+  for (let i = 0; i < 50; i += 1) {
+    const next = gaitForSpeed(GAIT_JOG_MAX + (i % 2 === 0 ? 0.02 : -0.02), gait);
+    assert.equal(next, gait, `flipped to ${next} on iteration ${i}`);
+    gait = next;
+  }
+
+  // With no history it still follows the brief's plain thresholds.
+  assert.equal(gaitForSpeed(0.3), "idle");
+  assert.equal(gaitForSpeed(2), "jog");
+  assert.equal(gaitForSpeed(5), "run");
+});
+
 test("timeScale tracks speed so stride length stays honest", () => {
   // Speeds the stand-in's clips actually depict, as measured off the rig.
   const JOG_CLIP = 1.65;

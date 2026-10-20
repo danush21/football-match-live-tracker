@@ -58,6 +58,8 @@ export interface PlayerRig {
   readonly forward: ForwardSign;
   /** Ground speed each locomotion clip depicts, metres per second. */
   readonly gaitSpeeds: Readonly<Record<GaitName, number>>;
+  /** Gait currently selected, so the thresholds can carry hysteresis. */
+  gait: GaitName;
 
   /** Current blend weights, parallel to GAITS. Mutated in place each frame. */
   readonly weights: Float32Array;
@@ -147,6 +149,7 @@ export function createPlayerRig(
     kickDuration,
     forward,
     gaitSpeeds,
+    gait: "idle",
     weights,
     yaw: 0,
     yawInitialised: false,
@@ -256,12 +259,17 @@ export function updatePlayerRig(
   rig.root.rotation.y = rig.yaw;
 
   // --- gait blend -----------------------------------------------------
-  const gait = gaitForSpeed(speed);
+  const gait = gaitForSpeed(speed, rig.gait);
+  rig.gait = gait;
   const blend = dt <= 0 ? 1 : Math.min(1, dt / CROSSFADE_SECONDS);
   let total = 0;
   for (let i = 0; i < GAITS.length; i += 1) {
     const wanted = GAITS[i] === gait ? 1 : 0;
-    const next = rig.weights[i]! + (wanted - rig.weights[i]!) * blend;
+    let next = rig.weights[i]! + (wanted - rig.weights[i]!) * blend;
+    // The lerp only approaches its target, so without this a settled player
+    // keeps a sliver of the other clip mixed in for ever and never stops
+    // sliding. Snap once the remainder is below what the eye could see.
+    if (Math.abs(next - wanted) < 0.02) next = wanted;
     rig.weights[i] = next;
     total += next;
   }
@@ -270,6 +278,14 @@ export function updatePlayerRig(
   const gaitScale = rig.kickIsAdditive ? 1 : 1 - rig.kickWeight;
   const normalise = total > 1e-5 ? gaitScale / total : 0;
 
+  // Each clip plays at the rate that makes its own stride cover the ground
+  // being tracked, which is what keeps a planted foot still.
+  //
+  // Two clips cannot both do that and stay in step, because their strides are
+  // different lengths, so a crossfade always slides somewhat. Driving them
+  // from a shared stride phase was tried and measured no better than this, so
+  // it is not worth the machinery; spending less time blended, via the
+  // hysteresis in gaitForSpeed, is what actually helps.
   for (let i = 0; i < GAITS.length; i += 1) {
     const name = GAITS[i]!;
     const action = rig.actions[name];

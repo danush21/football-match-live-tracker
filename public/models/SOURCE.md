@@ -69,8 +69,10 @@ rig at load rather than hardcoded, each because guessing one broke something:
   faces +Z; the previous stand-in faced -Z. Assuming it put every player on
   the pitch running backwards.
 - `measureClipGroundSpeed` - the ground speed each locomotion clip depicts, so
-  playback rate matches tracked speed and the feet do not skate. Guessed
-  values left a 32% foot slip.
+  playback rate matches tracked speed and the feet do not skate. Calibrated by
+  simulating the clip and minimising the toe's residual slip, not estimated
+  from the pose: estimating read this rig's run clip at 3.3 m/s against a true
+  6.1, and the feet slid for 77% of every stride.
 - `measureKickContact` - where in the kick clip the foot meets the ball, so
   the strike lands on the event frame.
 

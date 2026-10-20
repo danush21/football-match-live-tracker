@@ -176,18 +176,27 @@ export function makeInPlace(clip: AnimationClip): AnimationClip {
 }
 
 /**
- * Measure the ground speed a locomotion clip actually depicts, in metres per
- * second, so playback can be scaled to match the tracked speed.
+ * Measure the ground speed a locomotion clip depicts, in metres per second,
+ * so playback can be scaled to match the tracked speed and the feet stay put.
  *
- * These clips carry no root motion, so there is no travel to read off. Instead
- * this uses the fact that in an in-place clip the planted foot slides backwards
- * at exactly the speed the character is meant to be moving. Sample the cycle,
- * take the foot that is currently lowest as the planted one, and take the
- * median of its horizontal speed over the stance phase -- median rather than
- * mean so heel strike and toe off do not skew it.
+ * This is calibrated against the error it exists to remove, rather than
+ * estimated from the pose. An earlier version took the median speed of the
+ * lower foot over the frames where it sat low in its range, which sounds
+ * reasonable and is badly wrong on a clip with a flight phase: swing frames
+ * leak into the sample and drag the figure down. On this rig's run clip it
+ * read 3.3 m/s against a true 6.0, so the cycle played at half the rate the
+ * ground speed demanded and the feet slid for 77% of every stride.
  *
- * Returns null if the rig has no recognisable feet or the reading is
- * implausible, in which case the caller keeps its default.
+ * Instead the clip is run at a trial reference, the character is moved
+ * forward at a known speed, and the planted toe's residual slip is measured
+ * directly. Slip is proportional to |1 - trueSpeed / reference| whatever
+ * ground speed is used, so sweeping the reference and taking the minimum
+ * recovers the true figure. The toe is used rather than the ankle because the
+ * toe is what touches the grass; the ankle lifts and rotates through heel-off
+ * and reads as sliding when it is not.
+ *
+ * Returns null if the rig has no recognisable feet or nothing looks like
+ * locomotion, in which case the caller keeps its default.
  */
 export function measureClipGroundSpeed(
   scene: Object3D,
@@ -197,58 +206,137 @@ export function measureClipGroundSpeed(
   const model = cloneSkeleton(scene);
   model.scale.setScalar(scale);
 
+  const toes = [
+    findBone(model, "lefttoebase") ?? findBone(model, "lefttoeend"),
+    findBone(model, "righttoebase") ?? findBone(model, "righttoeend"),
+  ];
   const feet = [findBone(model, "leftfoot"), findBone(model, "rightfoot")];
+  const leftArm = findBone(model, "leftarm");
+  const rightArm = findBone(model, "rightarm");
+  if (toes[0] === null || toes[1] === null) return null;
   if (feet[0] === null || feet[1] === null) return null;
+  if (leftArm === null || rightArm === null) return null;
 
   const mixer = new AnimationMixer(model);
   const action = mixer.clipAction(clip);
   action.setEffectiveWeight(1);
   action.play();
 
-  const SAMPLES = 96;
-  const dt = clip.duration / SAMPLES;
-  if (!(dt > 0)) return null;
+  const x = (o: Object3D): number => o.matrixWorld.elements[12]!;
+  const y = (o: Object3D): number => o.matrixWorld.elements[13]!;
+  const z = (o: Object3D): number => o.matrixWorld.elements[14]!;
 
-  const x: number[][] = [[], []];
-  const y: number[][] = [[], []];
-  const z: number[][] = [[], []];
-
-  for (let i = 0; i <= SAMPLES; i += 1) {
-    mixer.update(i === 0 ? 0 : dt);
-    model.updateMatrixWorld(true);
-    for (let f = 0; f < 2; f += 1) {
-      const e = feet[f]!.matrixWorld.elements;
-      x[f]!.push(e[12]!);
-      y[f]!.push(e[13]!);
-      z[f]!.push(e[14]!);
-    }
+  /** Body forward, from the shoulders: they hold still through a stride. */
+  function forward(): readonly [number, number] {
+    const lx = x(leftArm!) - x(rightArm!);
+    const lz = z(leftArm!) - z(rightArm!);
+    const fx = -lz;
+    const fz = lx;
+    const len = Math.hypot(fx, fz);
+    return len < 1e-6 ? [0, 1] : [fx / len, fz / len];
   }
 
-  const stanceSpeeds: number[] = [];
-  for (let f = 0; f < 2; f += 1) {
-    const heights = y[f]!;
-    const low = Math.min(...heights);
-    const high = Math.max(...heights);
-    // The bottom third of the foot's travel counts as planted.
-    const threshold = low + (high - low) * 0.33;
-    for (let i = 1; i < heights.length; i += 1) {
-      if (heights[i]! > threshold) continue;
-      const dx = x[f]![i]! - x[f]![i - 1]!;
-      const dz = z[f]![i]! - z[f]![i - 1]!;
-      stanceSpeeds.push(Math.hypot(dx, dz) / dt);
+  const STEP = 1 / 120;
+
+  /** Rough starting point: how fast the toe travels backwards during stance. */
+  function initialEstimate(): number | null {
+    action.reset();
+    action.setEffectiveTimeScale(1);
+    model.position.set(0, 0, 0);
+    const samples = 240;
+    const dt = clip.duration / samples;
+    if (!(dt > 0)) return null;
+
+    let previous: Array<readonly [number, number]> | null = null;
+    const backward: number[] = [];
+    for (let i = 0; i <= samples; i += 1) {
+      mixer.update(i === 0 ? 0 : dt);
+      model.updateMatrixWorld(true);
+      const [fx, fz] = forward();
+      const current = toes.map((t) => [x(t!), z(t!)] as const);
+      if (previous !== null) {
+        for (let f = 0; f < 2; f += 1) {
+          const dx = current[f]![0] - previous[f]![0];
+          const dz = current[f]![1] - previous[f]![1];
+          backward.push(-(dx * fx + dz * fz) / dt);
+        }
+      }
+      previous = current;
+    }
+    if (backward.length < 8) return null;
+    backward.sort((a, b) => a - b);
+    // Stance occupies somewhere between a third and two thirds of a cycle
+    // depending on gait, so this is only a starting point for the sweep.
+    const estimate = backward[Math.floor(backward.length * 0.8)]!;
+    return estimate > 0.1 ? estimate : null;
+  }
+
+  /** Median residual slip of the planted toe, as a fraction of ground speed. */
+  function slipAt(reference: number, groundSpeed: number): number {
+    action.reset();
+    action.setEffectiveTimeScale(groundSpeed / reference);
+    action.play();
+    model.position.set(0, 0, 0);
+    model.updateMatrixWorld(true);
+    const [fx, fz] = forward();
+
+    let previous: readonly [number, number] | null = null;
+    let previousPlanted = -1;
+    const slips: number[] = [];
+
+    for (let i = 0; i < 260; i += 1) {
+      mixer.update(STEP);
+      // The tracking data carries the player forward; the clip must cancel it.
+      model.position.x += fx * groundSpeed * STEP;
+      model.position.z += fz * groundSpeed * STEP;
+      model.updateMatrixWorld(true);
+
+      const planted = y(feet[0]!) < y(feet[1]!) ? 0 : 1;
+      const toe = [x(toes[planted]!), z(toes[planted]!)] as const;
+      if (previous !== null && previousPlanted === planted && i > 20) {
+        slips.push(Math.hypot(toe[0] - previous[0], toe[1] - previous[1]) / STEP);
+      }
+      previous = toe;
+      previousPlanted = planted;
+    }
+
+    if (slips.length < 8) return Number.POSITIVE_INFINITY;
+    slips.sort((a, b) => a - b);
+    return slips[Math.floor(slips.length / 2)]! / groundSpeed;
+  }
+
+  const estimate = initialEstimate();
+  if (estimate === null) {
+    mixer.stopAllAction();
+    mixer.uncacheRoot(model);
+    return null;
+  }
+
+  // Coarse sweep around the estimate, then a local refinement.
+  let best = estimate;
+  let bestSlip = Number.POSITIVE_INFINITY;
+  for (const multiplier of [0.7, 0.85, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3]) {
+    const candidate = estimate * multiplier;
+    const slip = slipAt(candidate, estimate);
+    if (slip < bestSlip) {
+      bestSlip = slip;
+      best = candidate;
+    }
+  }
+  for (const multiplier of [0.9, 0.95, 1.05, 1.1]) {
+    const candidate = best * multiplier;
+    const slip = slipAt(candidate, estimate);
+    if (slip < bestSlip) {
+      bestSlip = slip;
+      best = candidate;
     }
   }
 
   mixer.stopAllAction();
   mixer.uncacheRoot(model);
 
-  if (stanceSpeeds.length < 4) return null;
-  stanceSpeeds.sort((a, b) => a - b);
-  const median = stanceSpeeds[Math.floor(stanceSpeeds.length / 2)]!;
-
-  // A human locomotion clip lives between a shuffle and a sprint.
-  if (!Number.isFinite(median) || median < 0.2 || median > 12) return null;
-  return median;
+  if (!Number.isFinite(best) || best < 0.2 || best > 12) return null;
+  return best;
 }
 
 /**
@@ -542,10 +630,38 @@ export function detectForwardSign(root: Object3D): ForwardSign {
   return dz > 0 ? 1 : -1;
 }
 
-/** Which gait a speed maps to. */
-export function gaitForSpeed(speed: number): GaitName {
-  if (speed < GAIT_IDLE_MAX) return "idle";
-  if (speed <= GAIT_JOG_MAX) return "jog";
+/**
+ * Fraction a speed must overshoot a threshold by before the gait changes.
+ *
+ * Without it a player cruising near 4 m/s flickers between jogging and
+ * running, and because each switch restarts a 0.2 s crossfade they never
+ * settle on one clip at all. Blending two locomotion clips slides the feet
+ * however well they are synchronised -- the postures and stride lengths
+ * genuinely differ -- so the cheapest way to cut skating is to spend less
+ * time blended.
+ */
+const GAIT_HYSTERESIS = 0.1;
+
+/**
+ * Which gait a speed maps to.
+ *
+ * `previous` is the gait currently playing. The nominal thresholds are the
+ * ones in the brief; a gait is only given up once the speed has moved a
+ * tenth past the boundary, so the switch point depends slightly on which way
+ * the player is accelerating.
+ */
+export function gaitForSpeed(speed: number, previous?: GaitName): GaitName {
+  // With no gait yet, use the brief's plain thresholds. Otherwise the bar to
+  // leave the current gait is raised and the bar to stay in it lowered, in
+  // both directions, so a speed sitting on a boundary settles instead of
+  // flipping every frame.
+  const margin = previous === undefined ? 0 : GAIT_HYSTERESIS;
+  const idleMax =
+    previous === "idle" ? GAIT_IDLE_MAX * (1 + margin) : GAIT_IDLE_MAX * (1 - margin);
+  const jogMax = previous === "run" ? GAIT_JOG_MAX * (1 - margin) : GAIT_JOG_MAX * (1 + margin);
+
+  if (speed < idleMax) return "idle";
+  if (speed <= jogMax) return "jog";
   return "run";
 }
 
