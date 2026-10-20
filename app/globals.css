@@ -242,13 +242,69 @@ body {
 
 .events-head {
   display: flex;
-  justify-content: space-between;
-  padding: 0.6rem 0.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.4rem 0.45rem 0.75rem;
   font-size: 0.66rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #7f8c99;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.events-count {
+  margin-left: auto;
+}
+
+.events-toggle {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: #7f8c99;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.events-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8edf2;
+}
+
+/* Collapsed: a pill in the same corner, so the pitch gets the space back. */
+.events-reopen {
+  position: absolute;
+  top: 1.1rem;
+  right: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 16, 20, 0.8);
+  backdrop-filter: blur(14px);
+  color: #93a1ad;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.events-reopen:hover {
+  color: #eef2f6;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.events-reopen span {
+  color: #6f7d89;
+  font-variant-numeric: tabular-nums;
 }
 
 .events-list {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { clockAt, secondsForFrame } from "@/lib/matchClock";
 import { usePlayback } from "@/lib/store";
 import type { MatchEvent, MatchMeta } from "@/lib/types";
@@ -44,6 +44,7 @@ function describe(event: MatchEvent): { label: string; detail: string; isGoal: b
 
 export function EventList({ meta }: { readonly meta: MatchMeta }): React.JSX.Element {
   const displayTime = usePlayback((s) => s.displayTime);
+  const [open, setOpen] = useState(true);
 
   const entries = useMemo<readonly Entry[]>(
     () =>
@@ -67,10 +68,36 @@ export function EventList({ meta }: { readonly meta: MatchMeta }): React.JSX.Ele
     return found;
   }, [entries, displayTime]);
 
-  return (
-    <aside className="events" aria-label="Key moments">
-      <header className="events-head">
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="events-reopen"
+        onClick={() => setOpen(true)}
+        aria-expanded={false}
+        aria-controls="key-moments"
+      >
         Key moments<span>{entries.length}</span>
+      </button>
+    );
+  }
+
+  return (
+    <aside className="events" id="key-moments" aria-label="Key moments">
+      <header className="events-head">
+        <span>Key moments</span>
+        <span className="events-count">{entries.length}</span>
+        <button
+          type="button"
+          className="events-toggle"
+          onClick={() => setOpen(false)}
+          aria-expanded
+          aria-controls="key-moments"
+          aria-label="Hide key moments"
+          title="Hide"
+        >
+          &rsaquo;
+        </button>
       </header>
       <ol className="events-list">
         {entries.map((entry) => {
