@@ -16,6 +16,7 @@ export function Transport({ meta, duration }: TransportProps): React.JSX.Element
   const speed = usePlayback((s) => s.speed);
   const displayTime = usePlayback((s) => s.displayTime);
   const cameraMode = usePlayback((s) => s.cameraMode);
+  const showNumbers = usePlayback((s) => s.showNumbers);
 
   /** While dragging, follow the handle rather than the clock it is chasing. */
   const [scrubbing, setScrubbing] = useState<number | null>(null);
@@ -103,6 +104,17 @@ export function Transport({ meta, duration }: TransportProps): React.JSX.Element
             {value}&times;
           </button>
         ))}
+      </div>
+
+      <div className="segmented" role="group" aria-label="Overlays">
+        <button
+          type="button"
+          className={showNumbers ? "on" : ""}
+          onClick={() => usePlayback.getState().toggleNumbers()}
+          title="Show every player's number"
+        >
+          Numbers
+        </button>
       </div>
 
       <div className="segmented" role="group" aria-label="Camera">

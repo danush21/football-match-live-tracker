@@ -3,7 +3,8 @@
 import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
-import { Vector3 } from "three";
+import { useThree } from "@react-three/fiber";
+import { Sprite, SpriteMaterial, Vector3 } from "three";
 import type { AnimationClip, Mesh, PerspectiveCamera } from "three";
 import {
   CLIP_CANDIDATES,
@@ -29,7 +30,15 @@ import {
 } from "@/lib/playerRig";
 import { BALL_RADIUS, ballScaleForDistance } from "@/lib/ball";
 import { appearanceFor, detectGoalkeepers } from "@/lib/kit";
-import { applyCameraPreset, followBall, type CameraMode, type OrbitLike } from "@/lib/cameraPresets";
+import { applyCameraPreset, followTarget, type CameraMode, type OrbitLike } from "@/lib/cameraPresets";
+import {
+  LABEL_ASPECT,
+  LABEL_DEFAULT,
+  LABEL_HEIGHT,
+  LABEL_SCALE,
+  LABEL_SELECTED,
+  createLabelTexture,
+} from "@/lib/playerLabels";
 import { FrameSampler } from "@/lib/sampler";
 import { usePlayback } from "@/lib/store";
 import type { MatchData } from "@/lib/types";
@@ -238,14 +247,109 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     };
   }
 
+  /**
+   * One sprite per player carrying their jersey number. Two textures each --
+   * normal and selected -- so picking a player can light their label up
+   * without rebuilding a canvas mid-frame.
+   */
+  const labels = useMemo(() => {
+    return match.meta.players.map((player) => {
+      const normal = createLabelTexture(player.jersey, LABEL_DEFAULT);
+      const selected = createLabelTexture(player.jersey, LABEL_SELECTED);
+      const material = new SpriteMaterial({
+        map: normal,
+        transparent: true,
+        depthTest: false,
+        sizeAttenuation: false,
+      });
+      const sprite = new Sprite(material);
+      sprite.scale.set(LABEL_SCALE * LABEL_ASPECT, LABEL_SCALE, 1);
+      sprite.visible = false;
+      // Drawn after the players so a number is never buried in a shoulder.
+      sprite.renderOrder = 10;
+      return { sprite, material, normal, selected };
+    });
+  }, [match]);
+
+  useEffect(
+    () => () => {
+      for (const label of labels) {
+        label.normal.dispose();
+        label.selected.dispose();
+        label.material.dispose();
+      }
+    },
+    [labels],
+  );
+
   const ballMesh = useRef<Mesh | null>(null);
+  const selectionRing = useRef<Mesh | null>(null);
   const appliedCameraMode = useRef<CameraMode | null>(null);
   /** Reused every frame; nothing may be allocated in the render loop. */
   const scratch = useMemo(() => new Vector3(), []);
+  const pickScratch = useMemo(() => new Vector3(), []);
+  const followScratch = useMemo(() => new Vector3(), []);
   const clock = useRef(0);
   const sinceDisplayPush = useRef(0);
   const cueCursor = useRef(0);
   const lastFrameIndex = useRef(-1);
+
+  const gl = useThree((state) => state.gl);
+  const camera = useThree((state) => state.camera);
+
+  /**
+   * Pick a player by clicking near them.
+   *
+   * Projecting each player to the screen and taking the nearest, rather than
+   * raycasting: a ray has to be tested against 154 skinned meshes whose bounds
+   * go stale as they animate, where this is 22 cheap projections and lets a
+   * click land anywhere near a player rather than exactly on a limb.
+   */
+  useEffect(() => {
+    const element = gl.domElement;
+    let downAt: { x: number; y: number } | null = null;
+
+    const onDown = (event: PointerEvent): void => {
+      downAt = { x: event.clientX, y: event.clientY };
+    };
+
+    const onUp = (event: PointerEvent): void => {
+      const start = downAt;
+      downAt = null;
+      // A drag is an orbit, not a click.
+      if (start === null) return;
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
+
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      let bestId: string | null = null;
+      let bestDistance = 44; // pixels; generous, so limbs are not required
+
+      for (let n = 0; n < rigs.length; n += 1) {
+        const rig = rigs[n]!;
+        if (!rig.wasVisible) continue;
+        pickScratch.set(rig.root.position.x, 1.1, rig.root.position.z);
+        pickScratch.project(camera);
+        const x = rect.left + ((pickScratch.x + 1) / 2) * rect.width;
+        const y = rect.top + ((1 - pickScratch.y) / 2) * rect.height;
+        const d = Math.hypot(event.clientX - x, event.clientY - y);
+        if (d < bestDistance) {
+          bestDistance = d;
+          bestId = match.meta.players[n]!.id;
+        }
+      }
+
+      usePlayback.getState().selectPlayer(bestId);
+    };
+
+    element.addEventListener("pointerdown", onDown);
+    element.addEventListener("pointerup", onUp);
+    return () => {
+      element.removeEventListener("pointerdown", onDown);
+      element.removeEventListener("pointerup", onUp);
+    };
+  }, [gl, camera, rigs, match, pickScratch]);
 
   const halfLength = match.meta.pitch.length / 2;
   const halfWidth = match.meta.pitch.width / 2;
@@ -307,6 +411,41 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
       );
     }
 
+    // --- number labels and selection ------------------------------------
+    const selectedId = store.selectedPlayer;
+    const showNumbers = store.showNumbers;
+    let selectedIndex = -1;
+
+    for (let n = 0; n < rigs.length; n += 1) {
+      const rig = rigs[n]!;
+      const label = labels[n]!;
+      const isSelected = match.meta.players[n]!.id === selectedId;
+      if (isSelected) selectedIndex = n;
+
+      // A selected player keeps their number whether or not the rest are shown.
+      const wanted = rig.wasVisible && (showNumbers || isSelected);
+      label.sprite.visible = wanted;
+      if (!wanted) continue;
+
+      label.sprite.position.set(rig.root.position.x, LABEL_HEIGHT, rig.root.position.z);
+      const texture = isSelected ? label.selected : label.normal;
+      if (label.material.map !== texture) {
+        label.material.map = texture;
+        label.material.needsUpdate = true;
+      }
+    }
+
+    const ring = selectionRing.current;
+    if (ring) {
+      if (selectedIndex >= 0 && rigs[selectedIndex]!.wasVisible) {
+        const root = rigs[selectedIndex]!.root;
+        ring.position.set(root.position.x, 0.04, root.position.z);
+        ring.visible = true;
+      } else {
+        ring.visible = false;
+      }
+    }
+
     // --- ball -----------------------------------------------------------
     const ball = ballMesh.current;
     if (ball) {
@@ -342,16 +481,24 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
       const mode = store.cameraMode;
       const ballVisible = ball !== null && ball.visible;
       if (appliedCameraMode.current !== mode) {
-        applyCameraPreset(
-          mode,
-          perspective,
-          controls,
-          match.meta.pitch,
-          ballVisible && ball !== null ? ball.position : null,
-        );
+        let focus: Vector3 | null = null;
+        if (mode === "player" && selectedIndex >= 0 && rigs[selectedIndex]!.wasVisible) {
+          const root = rigs[selectedIndex]!.root;
+          followScratch.set(root.position.x, 1, root.position.z);
+          focus = followScratch;
+        } else if (ballVisible && ball !== null) {
+          focus = ball.position;
+        }
+        applyCameraPreset(mode, perspective, controls, match.meta.pitch, focus);
         appliedCameraMode.current = mode;
       } else if (mode === "ball" && ballVisible && ball !== null) {
-        followBall(perspective, controls, ball.position, delta, scratch);
+        followTarget(perspective, controls, ball.position, delta, scratch);
+      } else if (mode === "player" && selectedIndex >= 0) {
+        const root = rigs[selectedIndex]!.root;
+        if (rigs[selectedIndex]!.wasVisible) {
+          followScratch.set(root.position.x, 1, root.position.z);
+          followTarget(perspective, controls, followScratch, delta, scratch);
+        }
       }
     }
 
@@ -359,6 +506,13 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     if (sinceDisplayPush.current >= DISPLAY_INTERVAL) {
       sinceDisplayPush.current = 0;
       if (store.displayTime !== clock.current) store.setDisplayTime(clock.current);
+      if (selectedIndex >= 0) {
+        const slot = slots[selectedIndex]!;
+        const o = slot * 2;
+        store.setSelectedSpeed(
+          present[slot] === 1 ? Math.hypot(velocities[o]!, velocities[o + 1]!) : 0,
+        );
+      }
     }
   });
 
@@ -367,6 +521,15 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
       {rigs.map((rig, n) => (
         <primitive key={match.meta.players[n]!.id} object={rig.root} />
       ))}
+      {labels.map((label, n) => (
+        <primitive key={`label-${match.meta.players[n]!.id}`} object={label.sprite} />
+      ))}
+
+      <mesh ref={selectionRing} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+        <ringGeometry args={[0.62, 0.82, 36]} />
+        <meshBasicMaterial color="#5aa9f0" transparent opacity={0.9} depthWrite={false} />
+      </mesh>
+
       <mesh ref={ballMesh} visible={false} castShadow>
         <sphereGeometry args={[BALL_RADIUS, 16, 12]} />
         <meshStandardMaterial color="#fdfdfd" roughness={0.4} />

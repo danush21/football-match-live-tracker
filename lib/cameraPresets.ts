@@ -9,14 +9,17 @@ import type { PitchDimensions } from "./types.ts";
  * follow is the exception, and even there the viewer's orbit is preserved --
  * only the point being looked at moves.
  */
-export type CameraMode = "broadcast" | "tactical" | "ball";
+export type CameraMode = "broadcast" | "tactical" | "ball" | "player";
 
 export const CAMERA_MODES: readonly CameraMode[] = ["broadcast", "tactical", "ball"];
+/** Only offered once a player has been clicked. */
+export const PLAYER_CAMERA: CameraMode = "player";
 
 export const CAMERA_LABELS: Readonly<Record<CameraMode, string>> = {
   broadcast: "Broadcast",
   tactical: "Overhead",
   ball: "Follow ball",
+  player: "Follow player",
 };
 
 /** Minimal shape of the controls; avoids depending on drei's types here. */
@@ -66,7 +69,8 @@ export function applyCameraPreset(
       controls.target.set(0, 0, 0);
       break;
     }
-    case "ball": {
+    case "ball":
+    case "player": {
       const centre = ball ?? controls.target;
       controls.target.copy(centre);
       camera.position.set(centre.x, centre.y + 13, centre.z + 21);
@@ -84,7 +88,7 @@ export function applyCameraPreset(
  * moves, so dragging to look from a different angle survives the ball moving.
  * `scratch` is supplied by the caller: this runs every frame.
  */
-export function followBall(
+export function followTarget(
   camera: PerspectiveCamera,
   controls: OrbitLike,
   ball: Vector3,

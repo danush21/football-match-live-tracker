@@ -23,6 +23,12 @@ interface PlaybackState {
   /** Set by seek(); the scene consumes it and resets it to null. */
   pendingSeek: number | null;
   cameraMode: CameraMode;
+  /** Player id the viewer has clicked, or null. */
+  selectedPlayer: string | null;
+  /** Whether jersey numbers float above every player. */
+  showNumbers: boolean;
+  /** Speed of the selected player, m/s, published at the display rate. */
+  selectedSpeed: number;
 
   play: () => void;
   pause: () => void;
@@ -32,6 +38,9 @@ interface PlaybackState {
   consumeSeek: () => number | null;
   setDisplayTime: (seconds: number) => void;
   setCameraMode: (mode: CameraMode) => void;
+  selectPlayer: (id: string | null) => void;
+  setSelectedSpeed: (speed: number) => void;
+  toggleNumbers: () => void;
 }
 
 export const usePlayback = create<PlaybackState>((set, get) => ({
@@ -40,6 +49,9 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
   displayTime: 0,
   pendingSeek: null,
   cameraMode: "broadcast",
+  selectedPlayer: null,
+  showNumbers: false,
+  selectedSpeed: 0,
 
   play: () => set({ playing: true }),
   pause: () => set({ playing: false }),
@@ -53,6 +65,14 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
   },
   setDisplayTime: (seconds) => set({ displayTime: seconds }),
   setCameraMode: (cameraMode) => set({ cameraMode }),
+  selectPlayer: (selectedPlayer) =>
+    set((s) => ({
+      selectedPlayer,
+      // Following nobody is not a camera mode; fall back when deselecting.
+      cameraMode: selectedPlayer === null && s.cameraMode === "player" ? "broadcast" : s.cameraMode,
+    })),
+  setSelectedSpeed: (selectedSpeed) => set({ selectedSpeed }),
+  toggleNumbers: () => set((s) => ({ showNumbers: !s.showNumbers })),
 }));
 
 // Development-only handle so the playback clock can be driven from the console

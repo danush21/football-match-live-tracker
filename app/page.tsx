@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Scene } from "@/components/Scene";
 import { EventList } from "@/components/EventList";
+import { SelectionPanel } from "@/components/SelectionPanel";
 import { Transport } from "@/components/Transport";
 import { loadMatch } from "@/lib/loadMatch";
 import type { MatchData } from "@/lib/types";
@@ -53,6 +54,7 @@ export default function Page(): React.JSX.Element {
       <div className="canvas-host">
         <Scene match={state.match} />
       </div>
+      <SelectionPanel meta={state.match.meta} />
       <EventList meta={state.match.meta} />
       <Transport meta={state.match.meta} duration={state.match.durationSeconds} />
     </>
