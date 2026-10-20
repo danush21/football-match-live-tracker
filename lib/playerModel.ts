@@ -63,8 +63,24 @@ export const FACING_MIN_SPEED = 0.5;
 /** Time for the yaw to close half the gap to its target, seconds. */
 export const YAW_HALF_LIFE = 0.085;
 
-/** Every rig is scaled so it stands this tall, whatever units the model uses. */
-export const TARGET_HEIGHT_METRES = 1.8;
+/**
+ * Every rig is scaled so it stands this tall, whatever units the model uses.
+ *
+ * Deliberately above a real footballer's 1.8 m. At a broadcast camera a player
+ * is only about 21 px tall, and the ball has to be exaggerated to be findable
+ * at all, so holding players to life size leaves the ball looking 2.7x too big
+ * next to them. Lifting players closes most of that gap.
+ *
+ * The ceiling is the goal: the crossbar is 2.44 m and is the one on-pitch
+ * reference the eye can check a player against, so a player must stay clearly
+ * shorter than it. 2.0 m is 82% of the crossbar, against 74% at life size --
+ * close enough to read correctly when play is in the six-yard box.
+ *
+ * Nothing else needs touching when this changes. fitScale feeds this same
+ * scale into measureClipGroundSpeed, so the stride lengths it measures grow
+ * with the rig and the foot-skating compensation stays correct.
+ */
+export const TARGET_HEIGHT_METRES = 2.0;
 
 /**
  * Which local axis the model treats as forward: +1 for +Z, -1 for -Z.

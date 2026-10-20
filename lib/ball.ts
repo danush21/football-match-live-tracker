@@ -9,8 +9,13 @@ export const BALL_RADIUS = 0.11;
  * At a broadcast camera roughly 85 m out, a true-size ball is under two pixels
  * across and effectively invisible against the turf. Televised tracking
  * graphics have the same problem and solve it the same way.
+ *
+ * Kept as low as legibility allows, because every pixel here is a pixel the
+ * ball looks too big by: at 7 px it read 2.7x oversized against the players
+ * and the whole scene looked wrong. White on green with a ground shadow is
+ * findable at 5.
  */
-export const BALL_MIN_SCREEN_PIXELS = 7;
+export const BALL_MIN_SCREEN_PIXELS = 5;
 
 /** Never inflate it past this, however far the camera pulls back. */
 export const BALL_MAX_SCALE = 8;
