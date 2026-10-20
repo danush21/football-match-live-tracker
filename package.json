@@ -28,6 +28,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.171.0",
     "fbx2gltf": "^0.9.7-p1",
+    "sharp": "^0.35.5",
     "typescript": "^5.7.0"
   }
 }

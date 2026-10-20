@@ -4,7 +4,20 @@
 It is not edited by hand and is not the file you change to swap characters.
 
 Current contents: Mixamo character **Ch38_nonPBR** (48,140 triangles, 65
-`mixamorig5:` bones) plus 13 animation clips, 2.8 MB.
+`mixamorig5:` bones) plus 13 animation clips, 3.2 MB.
+
+The character is modelled as one mesh per garment -- `Ch38_Shirt`,
+`Ch38_Shorts`, `Ch38_Socks`, `Ch38_Shoes`, `Ch38_Body`, `Ch38_Hair` -- which is
+what makes the kit system in `lib/kit.ts` possible without any shader work.
+Those meshes were already separate draw calls, so dressing them individually
+is free. Keep that split if you change character.
+
+Two textures are kept, downscaled: the body atlas at 512px, without which
+every player has a blank head, and the hair map at 256px for its alpha cutout.
+The clothing half of the atlas is never sampled, because garments are flat
+kit colour. The hair material's base colour alpha is forced back to 1 during
+the build: Mixamo ships it at 0, which with `alphaMode: BLEND` makes the hair
+invisible the moment it stops borrowing the body material.
 
 ## Clips
 

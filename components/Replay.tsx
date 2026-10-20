@@ -19,7 +19,7 @@ import {
 } from "@/lib/playerModel";
 import {
   createPlayerRig,
-  createTeamMaterial,
+  PlayerMaterials,
   disposePlayerRig,
   fireKick,
   updatePlayerRig,
@@ -27,13 +27,13 @@ import {
   type RigClips,
 } from "@/lib/playerRig";
 import { BALL_RADIUS } from "@/lib/ballHeight";
+import { appearanceFor, detectGoalkeepers } from "@/lib/kit";
 import { FrameSampler } from "@/lib/sampler";
 import { usePlayback } from "@/lib/store";
 import type { MatchData } from "@/lib/types";
 
 export const MODEL_URL = "/models/player.glb";
 
-const TEAM_COLOUR = { home: "#3f7fe0", away: "#d94438" } as const;
 
 /** Longest step the clock will take in one render frame (tab-switch guard). */
 const MAX_DELTA = 0.1;
@@ -113,11 +113,13 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
   }, [animations, scene]);
 
   // --- rigs -------------------------------------------------------------
+  /** Derived from where players stand; the source data has no positions. */
+  const keepers = useMemo(() => detectGoalkeepers(match), [match]);
+
+  const materials = useMemo(() => new PlayerMaterials(scene), [scene]);
+  useEffect(() => () => materials.dispose(), [materials]);
+
   const rigs: readonly PlayerRig[] = useMemo(() => {
-    const materials = {
-      home: createTeamMaterial(scene, TEAM_COLOUR.home),
-      away: createTeamMaterial(scene, TEAM_COLOUR.away),
-    };
     // All measured once on the loader's scene, which is still in its bind
     // pose; see fitScale for why this cannot be done per clone.
     const scale = fitScale(scene);
@@ -132,9 +134,16 @@ export function Replay({ match }: { match: MatchData }): React.JSX.Element {
     } as const;
 
     return match.meta.players.map((p) =>
-      createPlayerRig(scene, clips, materials[p.team], scale, forward, gaitSpeeds),
+      createPlayerRig(
+        scene,
+        clips,
+        materials.resolver(appearanceFor(p.id, p.team, keepers.has(p.id))),
+        scale,
+        forward,
+        gaitSpeeds,
+      ),
     );
-  }, [scene, clips, match]);
+  }, [scene, clips, match, materials, keepers]);
 
   useEffect(() => {
     return () => {

@@ -6,11 +6,12 @@
  * renames the clip after the role it plays, and merges them all onto the one
  * character so the app still loads a single file.
  *
- * Textures are dropped on purpose: the renderer replaces the character's
- * material with a flat team colour anyway (see createTeamMaterial), and the
- * source maps are 37 MB of 2k PNGs that would never be sampled.
+ * Most textures are dropped on purpose. The kit system colours the shirt,
+ * shorts and socks flat, so their maps are never sampled. Two are kept and
+ * downscaled: the body atlas, without which every player has a blank head,
+ * and the hair map, whose alpha channel cuts out the hair cards.
  *
- * Requires the devDependencies fbx2gltf and @gltf-transform/core.
+ * Requires the devDependencies fbx2gltf, @gltf-transform/core and sharp.
  * Run with: npm run build:model
  */
 
@@ -21,6 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";
 import convertFbx from "fbx2gltf";
+import sharp from "sharp";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MIXAMO = path.join(ROOT, "mixamo");
@@ -57,6 +59,42 @@ const CLIPS = [
 ];
 
 const mb = (n) => `${(n / 1048576).toFixed(2)} MB`;
+
+/**
+ * Textures to keep, by a fragment of their name, and the size to shrink them
+ * to. Everything else is discarded. The body atlas carries the face, which is
+ * the only reason to keep any texture at all; the hair map is kept purely for
+ * its alpha.
+ */
+const KEEP_TEXTURES = [
+  { match: /1001_diffuse/i, size: 512, label: "body atlas (face)" },
+  { match: /1002_diffuse/i, size: 256, label: "hair alpha" },
+];
+
+async function shrinkTextures(doc) {
+  const kept = [];
+  for (const texture of doc.getRoot().listTextures()) {
+    const name = texture.getName() ?? texture.getURI() ?? "";
+    const rule = KEEP_TEXTURES.find((r) => r.match.test(name));
+    if (rule === undefined) {
+      texture.dispose();
+      continue;
+    }
+    const image = texture.getImage();
+    if (image === null) {
+      texture.dispose();
+      continue;
+    }
+    const before = image.byteLength;
+    const resized = await sharp(Buffer.from(image))
+      .resize(rule.size, rule.size, { fit: "inside" })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    texture.setImage(new Uint8Array(resized)).setMimeType("image/png");
+    kept.push(`${rule.label} ${mb(before)} -> ${mb(resized.length)}`);
+  }
+  return kept;
+}
 
 async function toGltf(fbxPath, outPath) {
   if (!existsSync(fbxPath)) throw new Error(`missing input: ${fbxPath}`);
@@ -131,14 +169,24 @@ async function main() {
     const doc = await io.read(characterGlb);
     const root = doc.getRoot();
 
-    const before = {
-      textures: root.listTextures().length,
-      bytes: root.listTextures().reduce((n, t) => n + (t.getImage()?.byteLength ?? 0), 0),
-    };
-    for (const texture of root.listTextures()) texture.dispose();
+    const textureCount = root.listTextures().length;
+    const kept = await shrinkTextures(doc);
+    console.log(`  textures: kept ${kept.length} of ${textureCount}`);
+    for (const line of kept) console.log(`    ${line}`);
+
+    // The hair material's base colour alpha is 0, which with alphaMode BLEND
+    // makes the hair invisible the moment it stops borrowing the body material.
+    // Its real cutout lives in the texture's alpha, so let that through.
+    for (const material of root.listMaterials()) {
+      const [r, g, b, a] = material.getBaseColorFactor();
+      if (a < 1) {
+        material.setBaseColorFactor([r, g, b, 1]);
+        console.log(`  ${material.getName()}: base alpha ${a} -> 1 (was invisible)`);
+      }
+    }
+
     // The character file carries its own T-pose take; the real clips replace it.
     for (const animation of root.listAnimations()) animation.dispose();
-    console.log(`  dropped ${before.textures} textures (${mb(before.bytes)})`);
 
     for (const clip of CLIPS) {
       const source = path.join(clip.file.startsWith("pack/") ? MIXAMO : MIXAMO, clip.file);

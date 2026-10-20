@@ -1,6 +1,7 @@
 import {
   AnimationMixer,
   Color,
+  DoubleSide,
   Group,
   LoopOnce,
   Mesh,
@@ -12,6 +13,7 @@ import {
   type Material,
 } from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { BOOT_COLOUR } from "./kit.ts";
 import {
   CROSSFADE_SECONDS,
   FACING_MIN_SPEED,
@@ -23,6 +25,7 @@ import {
   type ForwardSign,
   type GaitName,
 } from "./playerModel.ts";
+import { classifyPart, type PlayerAppearance, type PlayerPart } from "./kit.ts";
 
 const GAITS: readonly GaitName[] = ["idle", "jog", "run"];
 
@@ -80,7 +83,7 @@ export interface PlayerRig {
 export function createPlayerRig(
   source: Object3D,
   clips: RigClips,
-  material: Material,
+  materialFor: (part: PlayerPart) => Material,
   scale: number,
   forward: ForwardSign,
   gaitSpeeds: Readonly<Record<GaitName, number>>,
@@ -91,7 +94,9 @@ export function createPlayerRig(
   model.traverse((child: Object3D) => {
     if ((child as Mesh).isMesh || (child as SkinnedMesh).isSkinnedMesh) {
       const mesh = child as Mesh;
-      mesh.material = material;
+      // The character is modelled as one mesh per garment, so dressing it is
+      // just a case of handing each mesh the right material.
+      mesh.material = materialFor(classifyPart(mesh.name));
       mesh.castShadow = true;
       mesh.receiveShadow = false;
       // Skinned bounds are computed from the bind pose and go stale as the
@@ -283,30 +288,106 @@ export function updatePlayerRig(
 }
 
 /**
- * One material per team, shared by that team's eleven.
+ * Builds and shares the materials that dress a player.
  *
- * The base colour map is dropped: multiplying a team tint through the model's
- * own (dark, camouflaged) texture reads as near-black at broadcast distance,
- * and telling the sides apart matters more here than surface detail. The
- * normal map is kept, so the figures still catch the light and read as bodies
- * rather than silhouettes.
+ * Materials are cached by part and colour, so the 22 players on the pitch are
+ * covered by about twenty materials rather than 154. This costs no extra draw
+ * calls either way: the garments are already separate meshes, and so were
+ * already separate draws.
  */
-export function createTeamMaterial(source: Object3D, colour: string): Material {
-  let base: MeshStandardMaterial | null = null;
-  source.traverse((child: Object3D) => {
-    if (base === null && (child as Mesh).isMesh) {
-      const material = (child as Mesh).material;
-      const first = Array.isArray(material) ? material[0] : material;
-      if (first instanceof MeshStandardMaterial) base = first;
-    }
-  });
+export class PlayerMaterials {
+  private readonly cache = new Map<string, Material>();
+  private readonly skinBase: MeshStandardMaterial;
+  private readonly hairBase: MeshStandardMaterial;
 
-  const material = base === null ? new MeshStandardMaterial() : (base as MeshStandardMaterial).clone();
-  material.map = null;
-  material.color = new Color(colour);
-  material.roughness = 0.7;
-  material.metalness = 0;
-  return material;
+  constructor(source: Object3D) {
+    let skin: MeshStandardMaterial | null = null;
+    let hair: MeshStandardMaterial | null = null;
+
+    source.traverse((child: Object3D) => {
+      const mesh = child as Mesh;
+      if (!mesh.isMesh) return;
+      const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      if (!(material instanceof MeshStandardMaterial)) return;
+      const part = classifyPart(mesh.name);
+      if (part === "skin" && skin === null) skin = material;
+      if (part === "hair" && hair === null) hair = material;
+    });
+
+    this.skinBase = skin ?? new MeshStandardMaterial();
+    this.hairBase = hair ?? this.skinBase;
+  }
+
+  /** Material resolver for one player's look. */
+  resolver(appearance: PlayerAppearance): (part: PlayerPart) => Material {
+    return (part) => this.get(part, appearance);
+  }
+
+  private get(part: PlayerPart, appearance: PlayerAppearance): Material {
+    const colour = this.colourFor(part, appearance);
+    const key = `${part}:${colour}`;
+    const existing = this.cache.get(key);
+    if (existing !== undefined) return existing;
+
+    const material = this.build(part, colour);
+    this.cache.set(key, material);
+    return material;
+  }
+
+  private colourFor(part: PlayerPart, appearance: PlayerAppearance): string {
+    switch (part) {
+      case "shirt":
+        return appearance.kit.shirt;
+      case "shorts":
+        return appearance.kit.shorts;
+      case "socks":
+        return appearance.kit.socks;
+      case "boots":
+        return BOOT_COLOUR;
+      case "hair":
+        return appearance.hair;
+      case "skin":
+        return appearance.skin;
+    }
+  }
+
+  private build(part: PlayerPart, colour: string): Material {
+    if (part === "hair") {
+      const material = this.hairBase.clone();
+      material.color = new Color(colour);
+      // The hair is built from overlapping cards cut out by the map's alpha.
+      // Alpha testing rather than blending keeps 22 heads from needing to be
+      // depth sorted against each other every frame.
+      material.transparent = false;
+      material.alphaTest = 0.5;
+      material.depthWrite = true;
+      material.side = DoubleSide;
+      material.roughness = 0.85;
+      material.metalness = 0;
+      return material;
+    }
+
+    const material = this.skinBase.clone();
+    material.color = new Color(colour);
+    material.metalness = 0;
+
+    if (part === "skin") {
+      // Keep the body atlas: it carries the face. The tint multiplies it.
+      material.roughness = 0.8;
+      return material;
+    }
+
+    // Garments are flat colour. Their half of the atlas is the character's own
+    // clothing design, which has nothing to do with a football kit.
+    material.map = null;
+    material.roughness = part === "boots" ? 0.45 : 0.78;
+    return material;
+  }
+
+  dispose(): void {
+    for (const material of this.cache.values()) material.dispose();
+    this.cache.clear();
+  }
 }
 
 export function disposePlayerRig(rig: PlayerRig): void {
