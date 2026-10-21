@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Scene } from "@/components/Scene";
+import { Credit } from "@/components/Credit";
 import { EventList } from "@/components/EventList";
 import { SelectionPanel } from "@/components/SelectionPanel";
 import { Transport } from "@/components/Transport";
@@ -56,6 +57,7 @@ export default function Page(): React.JSX.Element {
       </div>
       <SelectionPanel meta={state.match.meta} />
       <EventList meta={state.match.meta} />
+      <Credit />
       <Transport meta={state.match.meta} duration={state.match.durationSeconds} />
     </>
   );

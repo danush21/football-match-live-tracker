@@ -1,0 +1,13 @@
+# Raw Mixamo FBX downloads (85 MB) — the built player.glb is what ships.
+mixamo/
+
+# The brag video, its composition project and captured footage (11 MB).
+brag-output/
+
+# Raw Metrica CSVs — public/data/ holds the converted output.
+data-raw/
+
+# Local-only tooling and tests; nothing here runs on Vercel.
+test/
+scripts/
+.claude/
