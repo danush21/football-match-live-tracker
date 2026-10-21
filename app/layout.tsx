@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Football Match Replay",
-  description: "3D replay of a football match driven by real tracking data.",
+  title: "Football Match Live Tracker",
+  description: "Every player and the ball in 3D, in real time, from real tracking data.",
 };
 
 export default function RootLayout({

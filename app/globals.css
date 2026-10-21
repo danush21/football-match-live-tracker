@@ -517,31 +517,3 @@ body {
   border-color: rgba(90, 169, 240, 0.45);
   color: #cfe6ff;
 }
-
-/* ---- data credit ------------------------------------------------------ */
-
-/* Required by the data's terms, so it must survive; kept out of the way. */
-.credit {
-  position: absolute;
-  left: 1.1rem;
-  /* Clears the transport at every width: the bar is centred and capped at
-     68rem, so below ~1500px its left edge reaches back to the credit. */
-  bottom: 5.2rem;
-  font-size: 0.64rem;
-  letter-spacing: 0.03em;
-  color: #5c6873;
-  text-decoration: none;
-  transition: color 120ms ease;
-}
-
-.credit strong {
-  font-weight: 500;
-  color: #7f8c99;
-}
-
-.credit:hover,
-.credit:hover strong {
-  color: #cfd8e1;
-}
-
-

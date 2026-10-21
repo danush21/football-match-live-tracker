@@ -1,18 +1,20 @@
-# Football Match Replay
+# Football Match Live Tracker
 
-A browser app that replays a real, recorded football match in 3D. All 22 players
-and the ball are animated from genuine optical tracking data at 25fps — 145,006
-frames, 96 minutes, 1,745 events.
+Every player and the ball in 3D, in real time, from real optical tracking data —
+145,006 frames, 96 minutes, 1,745 events, 25 times a second.
 
-It is a **recording, not a live feed and not a simulation**: every player is
-where a real footballer actually stood. There is no network connection beyond
-two fetches of static files at startup.
+**What it is:** at 1x, the match runs at true pace, which is where "real time"
+comes from. The data itself is a complete recorded match loaded up front — there
+is no live feed and no streaming, just two fetches of static files at startup.
+Every player is where a real footballer actually stood.
 
 ## Data
 
 Tracking and event data: **[Metrica Sports Sample Game 1](https://github.com/metrica-sports/sample-data)**.
-The data is anonymised — no player, team or competition names. Metrica ask that
-any public use acknowledges the source, which the app does in its bottom corner.
+The data is anonymised — no player, team or competition names.
+
+Metrica ask that any public use acknowledges the source. This README is
+currently the only place that happens; there is no on-screen credit.
 
 ## Running it
 
